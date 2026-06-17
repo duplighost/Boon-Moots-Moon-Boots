@@ -18,7 +18,11 @@ function layerSet() {
   return {
     body: { img: null, ready: false }, back: { img: null, ready: false },
     bootL: { img: null, ready: false }, bootR: { img: null, ready: false },
-    get ready() { return this.body.ready && this.back.ready && this.bootL.ready && this.bootR.ready; },
+    bootLBack: { img: null, ready: false }, bootRBack: { img: null, ready: false }, // heel view
+    get ready() {
+      return this.body.ready && this.back.ready && this.bootL.ready && this.bootR.ready
+        && this.bootLBack.ready && this.bootRBack.ready;
+    },
   };
 }
 export const plainLayers = layerSet();
@@ -46,10 +50,14 @@ export function loadSprites() {
   loadInto(plainLayers.back, './assets/moots-back-body.webp');
   loadInto(plainLayers.bootL, './assets/moots-boot-l.webp');
   loadInto(plainLayers.bootR, './assets/moots-boot-r.webp');
+  loadInto(plainLayers.bootLBack, './assets/moots-boot-l-back.webp');
+  loadInto(plainLayers.bootRBack, './assets/moots-boot-r-back.webp');
   loadInto(dressedLayers.body, './assets/moots-dressed-body.webp');
   loadInto(dressedLayers.back, './assets/moots-dressed-back-body.webp');
   loadInto(dressedLayers.bootL, './assets/moots-dressed-boot-l.webp');
   loadInto(dressedLayers.bootR, './assets/moots-dressed-boot-r.webp');
+  loadInto(dressedLayers.bootLBack, './assets/moots-dressed-boot-l-back.webp');
+  loadInto(dressedLayers.bootRBack, './assets/moots-dressed-boot-r-back.webp');
   for (const [id, file] of Object.entries({
     falseMoon: 'false-moon-card', warden: 'warden-card', spiggot: 'spiggot-card', archon: 'archon-card',
   })) {
@@ -278,8 +286,9 @@ export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, s
       // so the body's hem always covers the tops. Amplitude grows with speed, zero when idle.
       const rock = (moving ? Math.sin((pose.animT || 0) * 2) : 0) * (0.05 + k * 0.06);
       const piv = dressed ? BOOT_PIV.dressed : BOOT_PIV.plain;
-      drawBootLayer(ctx, layers.bootL.img, piv.L, rock);
-      drawBootLayer(ctx, layers.bootR.img, piv.R, -rock);
+      // heel art when facing away so the boots turn around with him, not just the body
+      drawBootLayer(ctx, facingBack ? layers.bootLBack.img : layers.bootL.img, piv.L, rock);
+      drawBootLayer(ctx, facingBack ? layers.bootRBack.img : layers.bootR.img, piv.R, -rock);
       ctx.drawImage(facingBack ? layers.back.img : layers.body.img, -36, -72, 72, 106);
     } else {
       ctx.drawImage(wholeImg, -36, -72, 72, 106);
