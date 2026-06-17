@@ -16,13 +16,9 @@ export const bossCards = {}; // bossId -> {img, ready}
 // sticker art. Falls back to the whole-sprite above until every layer has loaded.
 function layerSet() {
   return {
-    body: { img: null, ready: false }, back: { img: null, ready: false },
+    body: { img: null, ready: false },
     bootL: { img: null, ready: false }, bootR: { img: null, ready: false },
-    bootLBack: { img: null, ready: false }, bootRBack: { img: null, ready: false }, // heel view
-    get ready() {
-      return this.body.ready && this.back.ready && this.bootL.ready && this.bootR.ready
-        && this.bootLBack.ready && this.bootRBack.ready;
-    },
+    get ready() { return this.body.ready && this.bootL.ready && this.bootR.ready; },
   };
 }
 export const plainLayers = layerSet();
@@ -47,17 +43,11 @@ export function loadSprites() {
   loadInto(mootsDressed, './assets/moots-dressed.webp');
   loadInto(mootsDressedBack, './assets/moots-dressed-back.webp');
   loadInto(plainLayers.body, './assets/moots-body.webp');
-  loadInto(plainLayers.back, './assets/moots-back-body.webp');
   loadInto(plainLayers.bootL, './assets/moots-boot-l.webp');
   loadInto(plainLayers.bootR, './assets/moots-boot-r.webp');
-  loadInto(plainLayers.bootLBack, './assets/moots-boot-l-back.webp');
-  loadInto(plainLayers.bootRBack, './assets/moots-boot-r-back.webp');
   loadInto(dressedLayers.body, './assets/moots-dressed-body.webp');
-  loadInto(dressedLayers.back, './assets/moots-dressed-back-body.webp');
   loadInto(dressedLayers.bootL, './assets/moots-dressed-boot-l.webp');
   loadInto(dressedLayers.bootR, './assets/moots-dressed-boot-r.webp');
-  loadInto(dressedLayers.bootLBack, './assets/moots-dressed-boot-l-back.webp');
-  loadInto(dressedLayers.bootRBack, './assets/moots-dressed-boot-r-back.webp');
   for (const [id, file] of Object.entries({
     falseMoon: 'false-moon-card', warden: 'warden-card', spiggot: 'spiggot-card', archon: 'archon-card',
   })) {
@@ -281,15 +271,17 @@ export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, s
     if (gunBehind) drawEmitter(ctx, face, pal);
     ctx.save();
     ctx.scale(sx * flip, (1 + 0.035 * Math.sin(spinPhase * 2)) * stretchY / stepSquash);
-    if (useLayers) {
-      // Striding feet: each boot rocks around its ankle in opposite phase, planted (no lift)
-      // so the body's hem always covers the tops. Amplitude grows with speed, zero when idle.
+    if (facingBack && backImg.ready) {
+      // Hand-drawn back art: faceless Moots with true heel boots, one piece (no compositing).
+      ctx.drawImage(backImg.img, -36, -72, 72, 106);
+    } else if (useLayers) {
+      // Front view — striding feet: each boot rocks around its ankle in opposite phase,
+      // planted (no lift) so the body's hem always covers the tops. Grows with speed.
       const rock = (moving ? Math.sin((pose.animT || 0) * 2) : 0) * (0.05 + k * 0.06);
       const piv = dressed ? BOOT_PIV.dressed : BOOT_PIV.plain;
-      // heel art when facing away so the boots turn around with him, not just the body
-      drawBootLayer(ctx, facingBack ? layers.bootLBack.img : layers.bootL.img, piv.L, rock);
-      drawBootLayer(ctx, facingBack ? layers.bootRBack.img : layers.bootR.img, piv.R, -rock);
-      ctx.drawImage(facingBack ? layers.back.img : layers.body.img, -36, -72, 72, 106);
+      drawBootLayer(ctx, layers.bootL.img, piv.L, rock);
+      drawBootLayer(ctx, layers.bootR.img, piv.R, -rock);
+      ctx.drawImage(layers.body.img, -36, -72, 72, 106);
     } else {
       ctx.drawImage(wholeImg, -36, -72, 72, 106);
     }
