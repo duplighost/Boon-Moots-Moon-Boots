@@ -75,11 +75,12 @@ export function drawFrame() {
   const renderables = [];
   const ov = visibleRect(140);
   for (const o of room.obstacles) if (!o.gone) {
+    if (o.ledge) continue; // rooftop ledges are drawn as part of the platform (drawTiers)
     // viewport-cull cover: giant rooms only render the obstacles actually on screen
     const bx0 = o.type === 'circle' ? o.x - o.rad : o.x, by0 = o.type === 'circle' ? o.y - o.rad : o.y;
     const bx1 = o.type === 'circle' ? o.x + o.rad : o.x + o.w, by1 = o.type === 'circle' ? o.y + o.rad : o.y + o.h;
     if (bx1 < ov.l || bx0 > ov.r || by1 < ov.t || by0 > ov.b) continue;
-    const lv = o.level || (o.ledge ? 1 : 0);
+    const lv = o.level || 0;
     renderables.push({ y: o.type === 'circle' ? o.y + o.rad : o.y + o.h, lv, lift: (o.level || 0) * LIFT, draw: () => drawObstacle(ctx, o, room) });
   }
   for (const e of room.enemies) renderables.push({ y: e.y + e.r, lv: e.level || 0, lift: (e.level || 0) * LIFT, draw: () => drawEnemy(ctx, e, room) });
@@ -160,7 +161,9 @@ export function drawFrame() {
 // stairs at the ramp. LIFT must match TIER_LIFT in the entity sort below.
 function drawTiers(room, pal) {
   if (!room.tiers) return;
+  const vis = visibleRect(160);
   for (const t of room.tiers) {
+    if (t.x + t.w < vis.l || t.x > vis.r || t.y + t.h < vis.t || t.y - TIER_LIFT > vis.b) continue; // cull off-screen rooftops
     const L = TIER_LIFT;
     const topY = t.y - L;                 // screen Y of the walkable top surface
     ctx.save();
@@ -244,7 +247,10 @@ function drawSkyRails(room, pal, p) {
   ctx.translate(0, -TIER_LIFT); // these are second-layer rails; floor-level dashes ignore them
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.globalCompositeOperation = 'lighter';
+  const vis = visibleRect(180);
   for (const r of rails) {
+    // cull rails whose whole span is off-screen (a full network stays cheap on big maps)
+    if (Math.max(r.x1, r.x2) < vis.l || Math.min(r.x1, r.x2) > vis.r || Math.max(r.y1, r.y2) < vis.t || Math.min(r.y1, r.y2) > vis.b) continue;
     const active = activeRail === r;
     const col = r.color || pal.accent2;
     ctx.globalAlpha = active ? 0.42 : 0.18;
@@ -352,7 +358,9 @@ function drawAnnexCurtain(room, pal) {
 
 function drawSetpieces(room, pal) {
   const t = room.time || performance.now() / 1000;
+  const vis = visibleRect(120);
   for (const s of room.setpieces || []) {
+    if (s.x < vis.l || s.x > vis.r || s.y < vis.t || s.y > vis.b) continue; // cull off-screen dressing
     const lift = (s.level || 0) * TIER_LIFT;
     ctx.save();
     ctx.translate(s.x, s.y - lift);
@@ -840,25 +848,43 @@ function drawBullets(room) {
   }
 }
 
+// Edge markers for every off-screen enemy: on an endless map you should never wonder
+// WHERE the fight is. Each off-screen threat pins a triangle to the screen edge; nearer
+// threats read brighter/bigger, telegraphing attacks flash red, and a small count badge
+// appears if more are off-screen than we draw.
 function drawDangerTriangles(room, p) {
-  const margin = 28, triSize = view.mobile ? 17 : 12; // bigger threat markers on phones
-  let count = 0;
+  const margin = 28, triSize = view.mobile ? 18 : 13;
+  const offs = [];
   for (const e of room.enemies) {
-    if (e.hp <= 0 || count >= 8) break;
+    if (e.hp <= 0) continue;
     const sx = (e.x - cam.x) * view.scale, sy = (e.y - cam.y) * view.scale;
     if (sx > margin && sx < view.W - margin && sy > margin && sy < view.H - margin) continue;
-    count++;
+    offs.push({ e, sx, sy, d: Math.hypot(e.x - p.x, e.y - p.y) });
+  }
+  offs.sort((a, b) => a.d - b.d); // nearest threats first
+  const shown = Math.min(offs.length, 14);
+  for (let i = 0; i < shown; i++) {
+    const { e, sx, sy, d } = offs[i];
     const cx = clamp(sx, margin, view.W - margin), cy = clamp(sy, margin, view.H - margin);
     const angle = Math.atan2(sy - view.H / 2, sx - view.W / 2);
     const isTele = (e.type === 'charger' && e.state === 'windup') || (e.type === 'sniper' && e.aimT > 0);
-    const s = isTele ? triSize * 1.6 : triSize;
+    const near = clamp(1 - d / 2400, 0, 1);          // closer → bolder marker
+    const s = (isTele ? triSize * 1.6 : triSize) * (0.82 + near * 0.5);
     ctx.save();
     ctx.translate(cx, cy); ctx.rotate(angle);
-    ctx.globalAlpha = isTele ? 0.95 : 0.55;
+    ctx.globalAlpha = isTele ? 0.96 : 0.42 + near * 0.42;
     ctx.fillStyle = isTele ? '#ff3333' : e.color;
+    if (isTele || near > 0.55) { ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 8; }
     ctx.beginPath();
     ctx.moveTo(s, 0); ctx.lineTo(-s * 0.5, -s * 0.6); ctx.lineTo(-s * 0.5, s * 0.6);
     ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  if (offs.length > shown) {
+    ctx.save();
+    ctx.globalAlpha = 0.8; ctx.fillStyle = '#ffd36e';
+    ctx.font = '900 13px Inter, system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`+${offs.length - shown} more`, view.W - margin, view.H - margin);
     ctx.restore();
   }
 }

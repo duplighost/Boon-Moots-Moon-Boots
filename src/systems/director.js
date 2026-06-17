@@ -49,7 +49,8 @@ function buildPool(round, recipe) {
 
 export function rollComposition(rng, round, recipe, overdrive, budgetMult = 1) {
   const stage = dangerStage(round, overdrive);
-  let budget = (8 + round * 1.55 + stage * 1.35 + (RECIPES[recipe]?.countAdj || 0)) * budgetMult;
+  // Slightly denser than before (the brief: "slightly more, not packed") — ~12% up.
+  let budget = (9 + round * 1.7 + stage * 1.5 + (RECIPES[recipe]?.countAdj || 0)) * budgetMult;
   const cap = view.mobile ? CAPS.ENEMIES.mobile : CAPS.ENEMIES.desktop;
   const pool = buildPool(round, recipe);
   const list = [];
@@ -112,7 +113,21 @@ function spawnPoints(room, rng, n) {
   const pts = [];
   const anchors = room.spawnAnchors || [];
   const w = room.wall;
+  const p = state.run?.player;
   for (let i = 0; i < n; i++) {
+    // Anti-search: most clusters ring the player at engage range, so on an endless map
+    // you never trek to find the fight — it comes to you. (Ranged types still hold their
+    // distance once close, so you must zip in to finish them: waiting is never enough.)
+    if (p && chance(rng, 0.55)) {
+      let done = false;
+      for (let tries = 0; tries < 16; tries++) {
+        const a = rng() * Math.PI * 2, rr = rand(rng, 640, 1180);
+        const x = clamp(p.x + Math.cos(a) * rr, w + 70, room.w - w - 70);
+        const y = clamp(p.y + Math.sin(a) * rr, w + 70, room.h - w - 70);
+        if (legalSpawnPoint(room, x, y) && dist(x, y, p.x, p.y) > 520) { pts.push({ x, y }); done = true; break; }
+      }
+      if (done) continue;
+    }
     if (anchors.length) {
       for (let tries = 0; tries < 24; tries++) {
         const a = anchors[randi(rng, 0, anchors.length - 1)];
@@ -139,7 +154,7 @@ function spawnPoints(room, rng, n) {
 export function buildWaves(room, rng) {
   const round = room.round;
   // scale the enemy budget with the (now city-scale) room so the sprawl stays full of action
-  const areaMult = clamp(Math.sqrt((room.w * room.h) / (1500 * 1020)), 1, 2.35);
+  const areaMult = clamp(Math.sqrt((room.w * room.h) / (1500 * 1020)), 1, 2.6);
 
   if (room.bossId) {
     // boss arena: the boss is present as the room reveals; two escort waves follow
@@ -186,10 +201,11 @@ export function buildWaves(room, rng) {
     const p = jitterSpawn(room, rng, c, 70, 55);
     return { type, x: p.x, y: p.y, delay: 0.45 + i * 0.12 };
   });
-  // High ground should be a reason to climb, not a single novelty perch.
-  // Seed multiple upper-layer enemies so rails/vents turn into a real combat route.
+  // High ground should be a reason to climb, not a single novelty perch. With a full
+  // rooftop grid, seed enemies across many roofs so the rails/vents are a real combat
+  // route and you find the fight up top instead of hunting for it.
   if (room.tiers && room.tiers.length) {
-    const perches = room.tiers.slice(0, view.mobile ? 2 : 4);
+    const perches = [...room.tiers].sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, view.mobile ? 3 : 6);
     for (let i = 0; i < perches.length; i++) {
       const t = perches[i];
       const perch = ENEMY_TYPES.sniper.from <= round && i % 2 === 0 ? 'sniper'

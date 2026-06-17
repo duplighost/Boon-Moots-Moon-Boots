@@ -3,7 +3,7 @@
 
 export const TAU = Math.PI * 2;
 export const SAVE_KEY = 'oneRoomNoMoon.v1';
-export const VERSION = '0.4.3-momentum-rails';
+export const VERSION = '0.5.0-endless-city';
 
 export const ROOM = {
   W: 2050, H: 1460, H_PORTRAIT: 1820,   // base dims (the roller rolls actual sizes; these document the target)
@@ -45,7 +45,9 @@ export const CAPS = {
   // City-scale arenas: lift the ceilings so the sprawl stays full of action + flash.
   // Director budget scales with room area (see buildWaves); these are the hard caps.
   // TOP PLAYTEST DIAL: drop back if combat reads as soup or perf dips.
-  ENEMIES: { mobile: 40, desktop: 64 },
+  // Endless-city pass: a touch more headroom for the denser sprawl (slightly more,
+  // not packed — the brief), kept conservative so perf holds on the bigger floors.
+  ENEMIES: { mobile: 46, desktop: 74 },
   ENEMY_BULLETS: { mobile: 130, desktop: 220 },
   PLAYER_BULLETS: { mobile: 110, desktop: 210 },
   PARTICLES: { mobile: 180, desktop: 340 },
@@ -56,11 +58,23 @@ export const DIRECTOR = {
   BASE: 4, PER_ROUND: 1.05, MIN: 4,
   TELEGRAPH: 0.55,            // warning glyph time before a spawn lands
   REINFORCE_AT: 0.62,         // fraction of count held for the second wave
-  REINFORCE_DELAY: [3.2, 5],  // seconds (or when 2 enemies remain) — kept snappy for tempo
+  REINFORCE_DELAY: [2.6, 4.2],  // seconds (or when 2 enemies remain) — snappier so the floor never lulls
   // danger stage = min(5, floor(round / 4)) during the route
   STAGE_DIV: 4, STAGE_CAP: 5,
   // non-boss scaling per No Moon: hp ×(1 + stageIdx*0.13 + stage*0.08)
-  HP_IDX: 0.13, HP_STAGE: 0.08, SPD_IDX: 0.02, SPD_STAGE: 0.02,
+  // Speed scales a little harder with depth now — enemies must keep pace with a
+  // player grinding rails across the whole second-layer sprawl.
+  HP_IDX: 0.13, HP_STAGE: 0.08, SPD_IDX: 0.027, SPD_STAGE: 0.027,
+};
+
+// Anti-search hunt: nothing is allowed to lurk on the far side of an endless map.
+// When an enemy is farther than FAR from the player it converges hard (extra steer
+// toward the player + a speed ramp up to +SPEED_BONUS at FULL), so you never hunt
+// for the last stragglers — they come to you. Inside FAR each archetype keeps its
+// own spacing brain (gunlines hold range, chargers rush), so "zip to engage" holds.
+export const HUNT = {
+  FAR: 1050, FULL: 2100,        // converge ramps between these distances
+  STEER: 1.7, SPEED_BONUS: 1.0, // +×speed at/over FULL distance
 };
 
 export const FX = {

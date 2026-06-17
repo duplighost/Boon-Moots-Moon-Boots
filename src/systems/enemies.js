@@ -2,7 +2,7 @@
 // (source anchors game_inline.js:8906-9024). Scaling inputs come from the room:
 // room.idx (0-9 compressed depth) and room.stage (danger stage 0-5+).
 import { state } from '../state.js';
-import { TAU, DIRECTOR } from '../config.js';
+import { TAU, DIRECTOR, HUNT } from '../config.js';
 import { clamp, damp, dist, norm } from '../rng.js';
 import { particle, addFloat } from '../render/particles.js';
 import { fireEnemyBurst, fireEnemyRing, fireEnemyShot } from './bullets.js';
@@ -182,6 +182,16 @@ export function updateEnemies(room, dt) {
           lambda = 7;
           break;
         }
+      }
+      // Anti-search convergence: an enemy stranded far across the endless sprawl
+      // drops its spacing game and homes in (extra steer + a speed ramp), so the
+      // player never hunts for the last few. Inside HUNT.FAR each archetype brain
+      // owns movement again — ranged still holds range, so you must zip in to finish.
+      if (!e.boss && d > HUNT.FAR && (e.type !== 'charger' || e.state === 'idle')) {
+        const hf = clamp((d - HUNT.FAR) / (HUNT.FULL - HUNT.FAR), 0, 1);
+        const hs = spd * (1 + HUNT.SPEED_BONUS * hf);
+        ax = to.x * hs; ay = to.y * hs;
+        lambda = Math.max(lambda, 5.5 + HUNT.STEER * hf);
       }
       if (e.type !== 'charger' || e.state === 'idle') {
         e.vx = damp(e.vx, ax, lambda, dt);

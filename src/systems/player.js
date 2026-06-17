@@ -31,6 +31,7 @@ export function makePlayer() {
     animT: 0, moveFace: 0, rail: null, air: null, airZ: 0, ventT: 0,
     comboHealFx: 0, comboTierFx: 0, _railLatchCd: 0,
     _dashFrameActive: false, _dashLastX: 750, _dashLastY: 700,
+    _ventClearReq: false,
   };
 }
 
@@ -146,6 +147,7 @@ export function updatePlayer(p, move, aim, room, dt) {
   p.x = clamp(p.x, w + p.r, room.w - w - p.r);
   p.y = clamp(p.y, w + p.r, room.h - w - p.r);
   if (p.dashT > 0) dashBreakCrossedObstacles(p, room, oldX, oldY, p.x, p.y);
+  keepOutOfSealedAnnex(p, room); // a fast dash must not tunnel into an un-opened vault
   for (const o of room.obstacles) if (!o.gone) resolveCircleObstacle(p, o);
   p.level = levelAt(room, p.x, p.y); // ground=0, raised platform=1 (set by ramps)
   if (p.dashT > 0) {
@@ -304,10 +306,42 @@ function updateAirborne(p, room, dt) {
   return true;
 }
 
+// The sealed annex (the “?” door + secret) is a real surprise: the only way in is to
+// break its door. A dash at full speed used to tunnel through the thin flank walls and
+// drop the player inside an un-opened vault — which then never triggered, because the
+// reward/ambush fires on door-break. If a step ends inside an un-opened annex, eject
+// the player back out through the door-facing side and cancel the inward velocity, so
+// the door stays the only entrance.
+function keepOutOfSealedAnnex(p, room) {
+  const a = room.annex;
+  if (!a || a.opened) return;
+  const r = a.rect, pad = p.r + 2;
+  if (p.x < r.x - pad || p.x > r.x + r.w + pad || p.y < r.y - pad || p.y > r.y + r.h + pad) return;
+  if (a.side === 'n') { p.y = r.y + r.h + pad; if (p.vy < 0) p.vy = 0; }      // door faces down
+  else if (a.side === 'e') { p.x = r.x - pad; if (p.vx > 0) p.vx = 0; }       // door faces left (into room)
+  else { p.x = r.x + r.w + pad; if (p.vx < 0) p.vx = 0; }                     // 'w': door faces right
+}
+
+// is the player sitting on top of any vent that could fire on their current level?
+function nearAnyVent(room, p) {
+  for (const v of room.vents || []) {
+    if (v.fromLevel != null && (p.level || 0) !== v.fromLevel) continue;
+    if (dist(p.x, p.y, v.x, v.y) <= v.r + p.r + 6) return true;
+  }
+  return false;
+}
+
 function maybeVentLaunch(p, room, x0, y0, fromDash) {
   if (p._ventCd > 0 || p.air) return false;
   const vents = room.vents || [];
   if (!vents.length) return false;
+  // Loop guard: after a launch you must leave every vent trigger zone before any vent
+  // can fire again. Kills the old updraft↔dropfan ping-pong that forced the player to
+  // “break away hard” to escape being thrown back and forth.
+  if (p._ventClearReq) {
+    if (nearAnyVent(room, p)) return false;
+    p._ventClearReq = false;
+  }
   for (const v of vents) {
     if (v.fromLevel != null && (p.level || 0) !== v.fromLevel) continue;
     const range = v.r + p.r + (fromDash ? 34 : 2);
@@ -327,6 +361,7 @@ function launchVent(p, room, v, dash) {
     fromLevel, toLevel: v.toLevel ?? 1, dash,
   };
   p._ventCd = dash ? 0.34 : 0.48;
+  p._ventClearReq = true; // must leave all vent zones before another launch (loop guard)
   p.ventT = dash ? 0.46 : 0.34;
   p.inv = Math.max(p.inv, dash ? 0.42 : 0.22);
   if (dash) { p.dashT = 0; p.dashCd = 0; }
