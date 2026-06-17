@@ -7,21 +7,26 @@ import { reduced } from '../systems/juice.js';
 
 export const moots = { img: null, ready: false };
 export const mootsDressed = { img: null, ready: false }; // unlocked by beating the final boss
+export const mootsBack = { img: null, ready: false };         // facing-away (faceless) art
+export const mootsDressedBack = { img: null, ready: false };  // facing-away + win shirt
 export const bossCards = {}; // bossId -> {img, ready}
 
 const PLAYER_DRAW_SCALE = PLAYER.DRAW_SCALE || 1;
 const PLAYER_EFFECT_SCALE = Math.max(0.78, PLAYER_DRAW_SCALE);
 
+function loadInto(slot, src) {
+  const im = new Image();
+  im.onload = () => { slot.ready = true; };
+  im.src = src;
+  slot.img = im;
+}
+
 export function loadSprites() {
   if (typeof Image === 'undefined') return;
-  const img = new Image();
-  img.onload = () => { moots.ready = true; };
-  img.src = './assets/moots.webp';
-  moots.img = img;
-  const dressed = new Image();
-  dressed.onload = () => { mootsDressed.ready = true; };
-  dressed.src = './assets/moots-dressed.webp';
-  mootsDressed.img = dressed;
+  loadInto(moots, './assets/moots.webp');
+  loadInto(mootsBack, './assets/moots-back.webp');
+  loadInto(mootsDressed, './assets/moots-dressed.webp');
+  loadInto(mootsDressedBack, './assets/moots-dressed-back.webp');
   for (const [id, file] of Object.entries({
     falseMoon: 'false-moon-card', warden: 'warden-card', spiggot: 'spiggot-card', archon: 'archon-card',
   })) {
@@ -42,7 +47,13 @@ export function drawPlayer(ctx, p, room) {
   const pal = room.biome.pal;
   const spin = dashSpinPhase(p);
   const sp = Math.hypot(p.vx || 0, p.vy || 0);
-  const pose = { speed: sp, vx: p.vx || 0, vy: p.vy || 0, moveFace: p.moveFace || 0, animT: p.animT || 0, dash: p.dashT > 0, rail: !!p.rail?.active, vent: p.ventT > 0, surface: p._surface, aim: p.face || 0 };
+  // Body facing is decoupled from the aim: Moots turns to face travel (or aim when idle),
+  // while the blaster still tracks the shot. The left/right flip persists through a small
+  // dead-zone so straight-up / straight-down motion doesn't make him flicker side to side.
+  const bodyFace = sp > 28 ? (p.moveFace || 0) : (p.face || 0);
+  const bfx = Math.cos(bodyFace);
+  if (bfx < -0.18) p._bodyFlip = -1; else if (bfx > 0.18) p._bodyFlip = 1;
+  const pose = { speed: sp, vx: p.vx || 0, vy: p.vy || 0, moveFace: p.moveFace || 0, animT: p.animT || 0, dash: p.dashT > 0, rail: !!p.rail?.active, vent: p.ventT > 0, surface: p._surface, aim: p.face || 0, bodyFace, flip: p._bodyFlip || 1 };
   // combo charged aura: at a high score multiplier the passenger runs hot — a pulsing
   // ring that intensifies + shifts colour with the combo (completes the power fantasy).
   const combo = state.run?.combo || 1;
@@ -203,20 +214,30 @@ export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, s
   ctx.scale(PLAYER_DRAW_SCALE, PLAYER_DRAW_SCALE); // visual scale lives in config; collision stays separate
   const spinning = !ghost && Math.abs(spinPhase) > 0.001;
   if (moving && !spinning) drawStepAccents(ctx, pose, pal, k);
+  // Which way is the body pointing? (decoupled from aim — see drawPlayer.) fy<0 is "away".
+  const bodyFace = pose.bodyFace ?? (moving ? (pose.moveFace || 0) : (pose.aim || face));
+  const fy = Math.sin(bodyFace), fx = Math.cos(bodyFace);
   const dressed = !ghost && state.save?.gotDressed && mootsDressed.ready;  // win cosmetic
-  const bodyImg = dressed ? mootsDressed.img : moots.img;
-  const bodyReady = dressed ? mootsDressed.ready : moots.ready;
+  // Swap to the faceless "back" art once he points firmly away (upward) and it has loaded.
+  const facingBack = !ghost && !spinning && fy < -0.5
+    && mootsBack.ready && (!dressed || mootsDressedBack.ready);
+  const bodyImg = facingBack ? (dressed ? mootsDressedBack.img : mootsBack.img)
+    : (dressed ? mootsDressed.img : moots.img);
+  const bodyReady = facingBack ? true : (dressed ? mootsDressed.ready : moots.ready);
   if (bodyReady && !ghost) {
     const yaw = Math.cos(spinPhase);
     const stepSquash = moving ? 1 + Math.sin((pose.animT || 0) * 2) * 0.025 : 1;
     // speed-stretch: streamline taller + narrower when fast, exaggerated on a dash
     const stretchY = 1 + k * 0.12 + (pose.dash ? 0.16 : 0);
-    const squashX = 1 - k * 0.05;
+    // pinch horizontally right at the front<->back turn so the swap reads as a pivot,
+    // not a pop; full width everywhere else (you skate sideways constantly).
+    const turn = clamp(1 - Math.abs(fy + 0.5) / 0.22, 0, 1);
+    const squashX = (1 - k * 0.05) * (1 - turn * 0.42);
     const sx = spinning ? (0.28 + 0.72 * Math.abs(yaw)) : (1 + k * 0.04) * squashX;
-    // face the way you're running; face your aim when standing still
-    const flip = spinning ? (yaw < 0 ? -1 : 1)
-      : moving ? (Math.cos(pose.moveFace || 0) < -0.2 ? -1 : 1)
-      : (Math.cos(pose.aim || 0) < -0.2 ? -1 : 1);
+    const flip = spinning ? (yaw < 0 ? -1 : 1) : (pose.flip ?? (fx < -0.18 ? -1 : 1));
+    // Up/back aim tucks the blaster BEHIND the body so it never crosses the head.
+    const gunBehind = !spinning && Math.sin(face) < -0.32;
+    if (gunBehind) drawEmitter(ctx, face, pal);
     ctx.save();
     ctx.scale(sx * flip, (1 + 0.035 * Math.sin(spinPhase * 2)) * stretchY / stepSquash);
     ctx.drawImage(bodyImg, -36, -72, 72, 106);
@@ -227,7 +248,7 @@ export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, s
       ctx.beginPath(); ctx.ellipse(0, -23, 37 * sx, 10, 0, 0, TAU); ctx.stroke();
       ctx.restore();
     }
-    drawEmitter(ctx, face, pal);
+    if (!gunBehind) drawEmitter(ctx, face, pal);
   } else {
     // fallback blob until the sprite loads (Boon Moots index.html:1416)
     if (spinning) {

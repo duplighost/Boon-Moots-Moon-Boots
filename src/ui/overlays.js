@@ -190,7 +190,7 @@ export function updateHud() {
     if (ui.pulseFill) ui.pulseFill.style.width = '100%';
     const boonEl = document.getElementById('boonChip');
     if (boonEl) {
-      boonEl.textContent = p.boon.charges > 0 ? '⇄ BOON READY' : `⇄ lacing ${p.boon.progress}/${p.boon.need}`;
+      boonEl.textContent = p.boon.charges > 0 ? '⇄ BOON READY' : `⇄ ${p.boon.progress}/${p.boon.need}`;
       boonEl.style.color = p.boon.charges > 0 ? '#f3dcff' : '';
     }
   }
