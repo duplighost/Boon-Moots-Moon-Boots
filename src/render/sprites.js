@@ -20,7 +20,7 @@ export function loadSprites() {
   moots.img = img;
   const dressed = new Image();
   dressed.onload = () => { mootsDressed.ready = true; };
-  dressed.src = './assets/moots-dressed.png';
+  dressed.src = './assets/moots-dressed.webp';
   mootsDressed.img = dressed;
   for (const [id, file] of Object.entries({
     falseMoon: 'false-moon-card', warden: 'warden-card', spiggot: 'spiggot-card', archon: 'archon-card',
