@@ -2,7 +2,7 @@
 // (source anchors game_inline.js:8906-9024). Scaling inputs come from the room:
 // room.idx (0-9 compressed depth) and room.stage (danger stage 0-5+).
 import { state } from '../state.js';
-import { TAU, DIRECTOR, HUNT } from '../config.js';
+import { TAU, DIRECTOR } from '../config.js';
 import { clamp, damp, dist, norm } from '../rng.js';
 import { particle, addFloat } from '../render/particles.js';
 import { fireEnemyBurst, fireEnemyRing, fireEnemyShot } from './bullets.js';
@@ -63,8 +63,12 @@ export function updateEnemies(room, dt) {
 
     const to = norm(p.x - e.x, p.y - e.y);
     const d = to.m;
-    const spd = e.speed * e.slowMul;
-    let ax = 0, ay = 0, lambda = 5.7;
+    let spd = e.speed * e.slowMul;
+    // City-scale arenas need hunter pressure: far enemies accelerate into the
+    // player's lane so the action comes to you, but close combat still uses the
+    // normal archetype movement.
+    if (!e.boss && d > 760) spd *= clamp(1 + (d - 760) / 820, 1, 1.9);
+    let ax = 0, ay = 0, lambda = 6.2;
 
     if (e.stun <= 0 && (e.boss ? updateBoss(e, room, p, to, d, dt) : true)) {
       switch (e.boss ? 'none' : e.type) {
@@ -72,19 +76,19 @@ export function updateEnemies(room, dt) {
           const wig = 1.08 + Math.sin(e.phase * 5) * 0.12;
           ax = to.x * spd * wig + Math.cos(e.phase * 6 + e.seed) * 52;
           ay = to.y * spd * wig + Math.sin(e.phase * 5 + e.seed) * 52;
-          if (e.cd <= 0 && d < 170) { e.cd = 0.72 + Math.random() * 0.4; e.vx += to.x * 260; e.vy += to.y * 260; }
-          lambda = 7.5;
+          if (e.cd <= 0 && d < 205) { e.cd = 0.55 + Math.random() * 0.28; e.vx += to.x * 380; e.vy += to.y * 380; }
+          lambda = 8.4;
           break;
         }
         case 'gunner': {
-          const want = d < 210 ? -1 : d > 320 ? 1 : 0.12;
+          const want = d < 245 ? -1 : d > 390 ? 1 : 0.18;
           const orbit = Math.sin(e.seed) >= 0 ? 1 : -1;
           ax = to.x * spd * want + (-to.y) * orbit * spd * 0.7;
           ay = to.y * spd * want + (to.x) * orbit * spd * 0.7;
-          if (e.cd <= 0 && d < 760) {
-            e.cd = Math.max(0.9, 1.55 - idx * 0.04);
+          if (e.cd <= 0 && d < 980) {
+            e.cd = Math.max(0.72, 1.28 - idx * 0.04);
             const count = 1 + (stage >= 2 ? 1 : 0) + (stage >= 4 ? 1 : 0);
-            fireEnemyBurst(room, e, p.x, p.y, count, 0.18, 340 + idx * 14, 2.9);
+            fireEnemyBurst(room, e, p.x, p.y, count, 0.16, 385 + idx * 16, 3.05);
           }
           break;
         }
@@ -92,19 +96,19 @@ export function updateEnemies(room, dt) {
           if (e.state === 'windup') {
             ax = ay = 0;
             if (e.tele <= 0.02) {
-              e.state = 'dash'; e.dashT = 0.42;
-              const thrust = 450 + 18 * stage;
+              e.state = 'dash'; e.dashT = 0.48;
+              const thrust = 620 + 26 * stage;
               e.vx = e.chargeX * thrust; e.vy = e.chargeY * thrust;
             }
           } else if (e.state === 'dash') {
             e.dashT -= dt;
             e.vx *= Math.pow(0.96, dt * 60); e.vy *= Math.pow(0.96, dt * 60);
             smashThroughCover(room, e);
-            if (e.dashT <= 0) { e.state = 'idle'; e.cd = Math.max(1.7, 2.6 - stage * 0.12); }
+            if (e.dashT <= 0) { e.state = 'idle'; e.cd = Math.max(1.15, 2.0 - stage * 0.13); }
           } else {
-            ax = to.x * spd * 0.84; ay = to.y * spd * 0.84;
-            if (e.cd <= 0 && d < 290) {
-              e.state = 'windup'; e.tele = 0.55;
+            ax = to.x * spd * 0.96; ay = to.y * spd * 0.96;
+            if (e.cd <= 0 && d < 390) {
+              e.state = 'windup'; e.tele = 0.38;
               e.chargeX = to.x; e.chargeY = to.y;
               addFloat(room, e.x, e.y - e.r - 12, '»', room.biome.pal.bad, false, 0.42);
               sfx('telegraph');
@@ -115,12 +119,12 @@ export function updateEnemies(room, dt) {
         case 'turret': {
           const orbit = Math.sin(state.room.time * 1.8 + e.seed) * 22;
           ax = -to.y * orbit; ay = to.x * orbit;
-          if (e.cd <= 0 && d < 800) {
-            e.cd = Math.max(1.0, 2.15 - idx * 0.05);
+          if (e.cd <= 0 && d < 980) {
+            e.cd = Math.max(0.82, 1.82 - idx * 0.05);
             if (stage >= 2 && Math.random() < 0.45) {
-              fireEnemyRing(room, e, 8 + (stage >= 4 ? 2 : 0), 235 + idx * 9, 3.7, e.color, e.seed + e.phase * 0.3);
+              fireEnemyRing(room, e, 8 + (stage >= 4 ? 2 : 0), 265 + idx * 10, 3.7, e.color, e.seed + e.phase * 0.3);
             } else {
-              fireEnemyBurst(room, e, p.x, p.y, 4 + (stage >= 4 ? 1 : 0), 0.52, 300 + idx * 12, 3.2);
+              fireEnemyBurst(room, e, p.x, p.y, 4 + (stage >= 4 ? 1 : 0), 0.46, 340 + idx * 14, 3.2);
             }
           }
           lambda = 7;
@@ -128,26 +132,26 @@ export function updateEnemies(room, dt) {
         }
         case 'brute': {
           ax = to.x * spd; ay = to.y * spd;
-          if (e.cd <= 0 && d < 460) {
-            e.cd = Math.max(1.6, 2.5 - idx * 0.04);
-            fireEnemyBurst(room, e, p.x, p.y, 5 + (stage >= 4 ? 1 : 0), 0.58, 260 + idx * 10, 3.4);
+          if (e.cd <= 0 && d < 620) {
+            e.cd = Math.max(1.25, 2.05 - idx * 0.045);
+            fireEnemyBurst(room, e, p.x, p.y, 5 + (stage >= 4 ? 1 : 0), 0.50, 300 + idx * 12, 3.4);
           }
           lambda = 5;
           break;
         }
         case 'sniper': {
-          const want = d < 380 ? -1 : d > 720 ? 1 : 0.05;
+          const want = d < 420 ? -1 : d > 860 ? 1 : 0.08;
           ax = to.x * spd * want + Math.cos(e.phase * 1.2) * 38;
           ay = to.y * spd * want + Math.sin(e.phase * 1.1) * 38;
           if (e.aimT > 0) {
             e.aimT -= dt; ax *= 0.2; ay *= 0.2;
             if (e.aimT <= 0.03 && e.snipeX !== undefined) {
-              fireEnemyShot(room, e, e.snipeX, e.snipeY, 520 + idx * 18, 4.9, 3.0, '#bfe6ff');
+              fireEnemyShot(room, e, e.snipeX, e.snipeY, 620 + idx * 20, 4.9, 3.0, '#bfe6ff');
               e.snipeX = undefined;
             }
-          } else if (e.cd <= 0 && d < 980) {
-            e.cd = Math.max(1.8, 2.8 - stage * 0.08);
-            e.aimT = 0.88; e.tele = 0.88;
+          } else if (e.cd <= 0 && d < 1250) {
+            e.cd = Math.max(1.35, 2.25 - stage * 0.09);
+            e.aimT = 0.68; e.tele = 0.68;
             e.snipeX = to.x; e.snipeY = to.y;
             addFloat(room, e.x, e.y - e.r - 10, '◇', room.biome.pal.bad, false, 0.42);
             sfx('telegraph');
@@ -160,9 +164,9 @@ export function updateEnemies(room, dt) {
           const want = d > 280 ? 1 : -0.22;
           ax = to.x * spd * want + (-to.y) * orbDir * spd * 0.72;
           ay = to.y * spd * want + (to.x) * orbDir * spd * 0.72;
-          if (e.cd <= 0 && d < 860) {
-            e.cd = Math.max(1.7, 2.7 - stage * 0.08);
-            fireEnemyRing(room, e, 6 + (stage >= 4 ? 2 : 0), 240 + idx * 10, 3.6, '#97ffd6', e.phase * 0.7);
+          if (e.cd <= 0 && d < 1080) {
+            e.cd = Math.max(1.28, 2.18 - stage * 0.09);
+            fireEnemyRing(room, e, 6 + (stage >= 4 ? 2 : 0), 280 + idx * 11, 3.6, '#97ffd6', e.phase * 0.7);
           }
           lambda = 6;
           break;
@@ -171,27 +175,17 @@ export function updateEnemies(room, dt) {
           const orbDir = Math.sin(e.seed * 2) >= 0 ? 1 : -1;
           ax = (-to.y) * orbDir * spd * 0.72 + (d > 240 ? to.x * spd * 0.82 : 0) + (-to.y) * orbDir * spd * 0.48 * Math.sin(e.phase * 2);
           ay = (to.x) * orbDir * spd * 0.72 + (d > 240 ? to.y * spd * 0.82 : 0) + (to.x) * orbDir * spd * 0.48 * Math.sin(e.phase * 2);
-          if (e.hopCd <= 0 && d < 260) {
-            e.hopCd = 1.6;
-            e.vx -= to.x * 170; e.vy -= to.y * 170;
+          if (e.hopCd <= 0 && d < 310) {
+            e.hopCd = 1.15;
+            e.vx -= to.x * 230; e.vy -= to.y * 230;
           }
-          if (e.cd <= 0 && d < 680) {
-            e.cd = Math.max(1.0, 1.85 - stage * 0.05);
-            fireEnemyBurst(room, e, p.x, p.y, 3 + (stage >= 4 ? 2 : 1), 0.42, 330 + idx * 14, 3.0);
+          if (e.cd <= 0 && d < 860) {
+            e.cd = Math.max(0.82, 1.55 - stage * 0.055);
+            fireEnemyBurst(room, e, p.x, p.y, 3 + (stage >= 4 ? 2 : 1), 0.36, 380 + idx * 16, 3.0);
           }
           lambda = 7;
           break;
         }
-      }
-      // Anti-search convergence: an enemy stranded far across the endless sprawl
-      // drops its spacing game and homes in (extra steer + a speed ramp), so the
-      // player never hunts for the last few. Inside HUNT.FAR each archetype brain
-      // owns movement again — ranged still holds range, so you must zip in to finish.
-      if (!e.boss && d > HUNT.FAR && (e.type !== 'charger' || e.state === 'idle')) {
-        const hf = clamp((d - HUNT.FAR) / (HUNT.FULL - HUNT.FAR), 0, 1);
-        const hs = spd * (1 + HUNT.SPEED_BONUS * hf);
-        ax = to.x * hs; ay = to.y * hs;
-        lambda = Math.max(lambda, 5.5 + HUNT.STEER * hf);
       }
       if (e.type !== 'charger' || e.state === 'idle') {
         e.vx = damp(e.vx, ax, lambda, dt);

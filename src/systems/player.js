@@ -30,8 +30,8 @@ export function makePlayer() {
     shots: 0, dashes: 0, stillT: 0, wasMoving: false, brakeT: 0, flowT: 0,
     animT: 0, moveFace: 0, rail: null, air: null, airZ: 0, ventT: 0,
     comboHealFx: 0, comboTierFx: 0, _railLatchCd: 0,
+    _ventExitX: null, _ventExitY: null, _ventExitLevel: null,
     _dashFrameActive: false, _dashLastX: 750, _dashLastY: 700,
-    _ventClearReq: false,
   };
 }
 
@@ -53,6 +53,12 @@ export function updatePlayer(p, move, aim, room, dt) {
   p.comboHealFx = Math.max(0, (p.comboHealFx || 0) - dt);
   p.comboTierFx = Math.max(0, (p.comboTierFx || 0) - dt);
   tickVentTimers(room, dt);
+  if (p._ventExitX != null) {
+    const sameLevel = (p.level || 0) === (p._ventExitLevel || 0);
+    if (!sameLevel || dist(p.x, p.y, p._ventExitX, p._ventExitY) > 118) {
+      p._ventExitX = p._ventExitY = p._ventExitLevel = null;
+    }
+  }
 
   const wasDashing = p.dashT > 0;
   // Remember dash travel for systems that update after player movement this frame
@@ -135,8 +141,8 @@ export function updatePlayer(p, move, aim, room, dt) {
   // the sprawl. Riding one lifts the speed cap so the lane actually feels light-speed.
   applyFlowLanes(p, room, move, dt);
   const flowing = (p.flowT || 0) > 0;
-  const maxV = p.speed * (p.dashT > 0 ? PLAYER.DASH_SPEED_MULT * (flowing ? 1.22 : 1)
-    : flowing ? PLAYER.MAX_SPEED_MULT * 1.5 : PLAYER.MAX_SPEED_MULT);
+  const maxV = p.speed * (p.dashT > 0 ? PLAYER.DASH_SPEED_MULT * (flowing ? 1.36 : 1)
+    : flowing ? PLAYER.MAX_SPEED_MULT * 1.85 : PLAYER.MAX_SPEED_MULT);
   let sp = Math.hypot(p.vx, p.vy);
   if (sp > maxV) { p.vx = p.vx / sp * maxV; p.vy = p.vy / sp * maxV; sp = maxV; }
   const oldX = p.x, oldY = p.y, oldLevel = p.level || 0;
@@ -147,7 +153,7 @@ export function updatePlayer(p, move, aim, room, dt) {
   p.x = clamp(p.x, w + p.r, room.w - w - p.r);
   p.y = clamp(p.y, w + p.r, room.h - w - p.r);
   if (p.dashT > 0) dashBreakCrossedObstacles(p, room, oldX, oldY, p.x, p.y);
-  keepOutOfSealedAnnex(p, room); // a fast dash must not tunnel into an un-opened vault
+  const blockedAnnexDash = blockSealedAnnexBreach(p, room, oldX, oldY);
   for (const o of room.obstacles) if (!o.gone) resolveCircleObstacle(p, o);
   p.level = levelAt(room, p.x, p.y); // ground=0, raised platform=1 (set by ramps)
   if (p.dashT > 0) {
@@ -159,6 +165,41 @@ export function updatePlayer(p, move, aim, room, dt) {
   }
 
   finishPlayerFrame(p, room, Math.hypot(p.vx, p.vy), dt, move.active);
+}
+
+
+function sealedAnnexContains(room, x, y, pad = 0) {
+  const a = room.annex;
+  if (!a || a.opened || !a.rect) return false;
+  const r = a.rect;
+  return x > r.x - pad && x < r.x + r.w + pad && y > r.y - pad && y < r.y + r.h + pad;
+}
+
+function blockSealedAnnexBreach(p, room, oldX, oldY) {
+  const a = room.annex;
+  if (!a || a.opened || !a.rect) return false;
+  if (!sealedAnnexContains(room, p.x, p.y, p.r * 0.2)) return false;
+
+  if (!sealedAnnexContains(room, oldX, oldY, p.r * 0.2)) {
+    p.x = oldX; p.y = oldY;
+  } else {
+    // Safety fallback if a save/load or spawn somehow starts inside: push through
+    // the nearest exterior side, not through the sealed door trigger.
+    const r = a.rect;
+    const sides = [
+      { d: Math.abs(p.x - r.x), x: r.x - p.r - 2, y: p.y },
+      { d: Math.abs(p.x - (r.x + r.w)), x: r.x + r.w + p.r + 2, y: p.y },
+      { d: Math.abs(p.y - r.y), x: p.x, y: r.y - p.r - 2 },
+      { d: Math.abs(p.y - (r.y + r.h)), x: p.x, y: r.y + r.h + p.r + 2 },
+    ].sort((u, v) => u.d - v.d)[0];
+    p.x = sides.x; p.y = sides.y;
+  }
+  p.vx *= -0.18; p.vy *= -0.18;
+  p.dashT = 0; p._dashHitIds = null; p._dashStartLevel = null;
+  p.inv = Math.max(p.inv, 0.10);
+  addFloat(room, p.x, p.y - 42, 'LOCKED', room.biome.pal.bad, false, 0.38);
+  ripple(room, p.x, p.y, room.biome.pal.bad, 82, 0.30);
+  return true;
 }
 
 
@@ -289,8 +330,8 @@ function updateAirborne(p, room, dt) {
   p.level = u > 0.58 ? a.toLevel : a.fromLevel;
   p.airZ = Math.sin(u * Math.PI) * (a.dash ? 84 : 58);
   const dir = norm(a.ex - a.sx, a.ey - a.sy);
-  p.vx = dir.x * (a.dash ? 980 : 520);
-  p.vy = dir.y * (a.dash ? 980 : 520);
+  p.vx = dir.x * (a.dash ? 1260 : 720);
+  p.vy = dir.y * (a.dash ? 1260 : 720);
   p.stillT = 0;
   if (!reduced() && Math.random() < 0.65) {
     particle(room, p.x - dir.x * 20, p.y - dir.y * 20, room.biome.pal.accent2,
@@ -298,50 +339,19 @@ function updateAirborne(p, room, dt) {
   }
   if (u >= 1) {
     p.x = a.ex; p.y = a.ey; p.level = a.toLevel; p.air = null; p.airZ = 0;
-    p.vx = dir.x * (a.dash ? 760 : 360);
-    p.vy = dir.y * (a.dash ? 760 : 360);
+    p.vx = dir.x * (a.dash ? 1020 : 560);
+    p.vy = dir.y * (a.dash ? 1020 : 560);
     ripple(room, p.x, p.y, room.biome.pal.accent2, a.dash ? 132 : 92, 0.42);
     burst(room, p.x, p.y, room.biome.pal.accent3, a.dash ? 20 : 12, a.dash ? 240 : 160, 0.35, 3);
   }
   return true;
 }
 
-// The sealed annex (the “?” door + secret) is a real surprise: the only way in is to
-// break its door. A dash at full speed used to tunnel through the thin flank walls and
-// drop the player inside an un-opened vault — which then never triggered, because the
-// reward/ambush fires on door-break. If a step ends inside an un-opened annex, eject
-// the player back out through the door-facing side and cancel the inward velocity, so
-// the door stays the only entrance.
-function keepOutOfSealedAnnex(p, room) {
-  const a = room.annex;
-  if (!a || a.opened) return;
-  const r = a.rect, pad = p.r + 2;
-  if (p.x < r.x - pad || p.x > r.x + r.w + pad || p.y < r.y - pad || p.y > r.y + r.h + pad) return;
-  if (a.side === 'n') { p.y = r.y + r.h + pad; if (p.vy < 0) p.vy = 0; }      // door faces down
-  else if (a.side === 'e') { p.x = r.x - pad; if (p.vx > 0) p.vx = 0; }       // door faces left (into room)
-  else { p.x = r.x + r.w + pad; if (p.vx < 0) p.vx = 0; }                     // 'w': door faces right
-}
-
-// is the player sitting on top of any vent that could fire on their current level?
-function nearAnyVent(room, p) {
-  for (const v of room.vents || []) {
-    if (v.fromLevel != null && (p.level || 0) !== v.fromLevel) continue;
-    if (dist(p.x, p.y, v.x, v.y) <= v.r + p.r + 6) return true;
-  }
-  return false;
-}
-
 function maybeVentLaunch(p, room, x0, y0, fromDash) {
   if (p._ventCd > 0 || p.air) return false;
+  if (p._ventExitX != null && (p.level || 0) === (p._ventExitLevel || 0) && dist(p.x, p.y, p._ventExitX, p._ventExitY) < 116) return false;
   const vents = room.vents || [];
   if (!vents.length) return false;
-  // Loop guard: after a launch you must leave every vent trigger zone before any vent
-  // can fire again. Kills the old updraft↔dropfan ping-pong that forced the player to
-  // “break away hard” to escape being thrown back and forth.
-  if (p._ventClearReq) {
-    if (nearAnyVent(room, p)) return false;
-    p._ventClearReq = false;
-  }
   for (const v of vents) {
     if (v.fromLevel != null && (p.level || 0) !== v.fromLevel) continue;
     const range = v.r + p.r + (fromDash ? 34 : 2);
@@ -361,7 +371,7 @@ function launchVent(p, room, v, dash) {
     fromLevel, toLevel: v.toLevel ?? 1, dash,
   };
   p._ventCd = dash ? 0.34 : 0.48;
-  p._ventClearReq = true; // must leave all vent zones before another launch (loop guard)
+  p._ventExitX = v.toX; p._ventExitY = v.toY; p._ventExitLevel = v.toLevel ?? 1;
   p.ventT = dash ? 0.46 : 0.34;
   p.inv = Math.max(p.inv, dash ? 0.42 : 0.22);
   if (dash) { p.dashT = 0; p.dashCd = 0; }
@@ -516,8 +526,8 @@ function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
 function detachRail(p, room, info, ix, iy, opts = {}) {
   const n = norm(ix, iy);
   if (n.m < 0.05) return false;
-  const carry = opts.carry ?? 180;
-  const speed = opts.speed ?? 540;
+  const carry = opts.carry ?? 300;
+  const speed = opts.speed ?? 720;
   p.rail = null;
   p._railLatchCd = Math.max(p._railLatchCd || 0, opts.cd ?? 0.24);
   p.inv = Math.max(p.inv, 0.12);
@@ -542,13 +552,13 @@ function updateRailRide(p, room, move, dt) {
     if (p.rail.t > 0.055 && inward > 0.34 && Math.abs(inward) >= Math.abs(along) * 0.62) {
       const info = { ...info0, dir: p.rail.dir || 1 };
       return detachRail(p, room, info, info0.nx + info0.tx * along * 0.16, info0.ny + info0.ty * along * 0.16,
-        { speed: 560, carry: 230, cd: 0.28, glyph: '↘' });
+        { speed: 760, carry: 340, cd: 0.24, glyph: '↘' });
     }
     if (Math.abs(along) > 0.35) p.rail.dir = along > 0 ? 1 : -1;
   }
   p.rail.t += dt;
   p.rail.rocketT = Math.max(0, (p.rail.rocketT || 0) - dt);
-  const target = p.rail.rocketT > 0 ? 1540 : 760;
+  const target = p.rail.rocketT > 0 ? 1980 : 980;
   p.rail.speed = damp(p.rail.speed || target, target, p.rail.rocketT > 0 ? 8 : 4.5, dt);
   p.rail.s = (p.rail.s || 0) + (p.rail.dir || 1) * p.rail.speed * dt;
   const info = railPoint(room, p, p.rail.s);
@@ -581,13 +591,13 @@ function updateSkyRailRide(p, room, move, dt) {
       const info = { ...info0, dir: p.rail.dir || 1 };
       return detachRail(p, room, info, info0.nx * Math.sign(side) + info0.tx * along * 0.12,
         info0.ny * Math.sign(side) + info0.ty * along * 0.12,
-        { speed: 575, carry: 260, cd: 0.30, glyph: side > 0 ? '↙' : '↘', color: r.color || room.biome.pal.accent2 });
+        { speed: 780, carry: 360, cd: 0.26, glyph: side > 0 ? '↙' : '↘', color: r.color || room.biome.pal.accent2 });
     }
     if (Math.abs(along) > 0.35) p.rail.dir = along > 0 ? 1 : -1;
   }
   p.rail.t += dt;
   p.rail.rocketT = Math.max(0, (p.rail.rocketT || 0) - dt);
-  const target = p.rail.rocketT > 0 ? 1660 : (r.boost || 980);
+  const target = p.rail.rocketT > 0 ? 2200 : (r.boost || 1320);
   p.rail.speed = damp(p.rail.speed || target, target, p.rail.rocketT > 0 ? 9 : 5.2, dt);
   p.rail.u = (p.rail.u || 0) + (p.rail.dir || 1) * p.rail.speed * dt / Math.max(1, info0.len);
   const ended = p.rail.u <= 0 || p.rail.u >= 1;
@@ -716,7 +726,7 @@ export function tryDash(dx = null, dy = null, move = null) {
       const inward = n.x * info.nx + n.y * info.ny;
       if (Math.abs(along) > 0.42 && Math.abs(along) >= Math.abs(inward) * 0.72) {
         p.rail.dir = along >= 0 ? 1 : -1;
-        p.rail.speed = Math.max(p.rail.speed || 0, 1760);
+        p.rail.speed = Math.max(p.rail.speed || 0, 2250);
         p.rail.rocketT = 0.56;
         p.lastDashAngle = Math.atan2(info.ty * p.rail.dir, info.tx * p.rail.dir);
         p._dashHitIds = new Set(); p._dashCutPrimed = false;
@@ -738,7 +748,7 @@ export function tryDash(dx = null, dy = null, move = null) {
       const inward = n.x * info.nx + n.y * info.ny;
       if (Math.abs(along) > 0.42 && Math.abs(along) >= Math.abs(inward) * 0.72) {
         p.rail.dir = along >= 0 ? 1 : -1;
-        p.rail.speed = Math.max(p.rail.speed || 0, 1660);
+        p.rail.speed = Math.max(p.rail.speed || 0, 2100);
         p.rail.rocketT = 0.54;
         p.lastDashAngle = Math.atan2(info.ty * p.rail.dir, info.tx * p.rail.dir);
         p._dashHitIds = new Set(); p._dashCutPrimed = false;

@@ -49,8 +49,7 @@ function buildPool(round, recipe) {
 
 export function rollComposition(rng, round, recipe, overdrive, budgetMult = 1) {
   const stage = dangerStage(round, overdrive);
-  // Slightly denser than before (the brief: "slightly more, not packed") — ~12% up.
-  let budget = (9 + round * 1.7 + stage * 1.5 + (RECIPES[recipe]?.countAdj || 0)) * budgetMult;
+  let budget = (8 + round * 1.55 + stage * 1.35 + (RECIPES[recipe]?.countAdj || 0)) * budgetMult;
   const cap = view.mobile ? CAPS.ENEMIES.mobile : CAPS.ENEMIES.desktop;
   const pool = buildPool(round, recipe);
   const list = [];
@@ -113,21 +112,7 @@ function spawnPoints(room, rng, n) {
   const pts = [];
   const anchors = room.spawnAnchors || [];
   const w = room.wall;
-  const p = state.run?.player;
   for (let i = 0; i < n; i++) {
-    // Anti-search: most clusters ring the player at engage range, so on an endless map
-    // you never trek to find the fight — it comes to you. (Ranged types still hold their
-    // distance once close, so you must zip in to finish them: waiting is never enough.)
-    if (p && chance(rng, 0.55)) {
-      let done = false;
-      for (let tries = 0; tries < 16; tries++) {
-        const a = rng() * Math.PI * 2, rr = rand(rng, 640, 1180);
-        const x = clamp(p.x + Math.cos(a) * rr, w + 70, room.w - w - 70);
-        const y = clamp(p.y + Math.sin(a) * rr, w + 70, room.h - w - 70);
-        if (legalSpawnPoint(room, x, y) && dist(x, y, p.x, p.y) > 520) { pts.push({ x, y }); done = true; break; }
-      }
-      if (done) continue;
-    }
     if (anchors.length) {
       for (let tries = 0; tries < 24; tries++) {
         const a = anchors[randi(rng, 0, anchors.length - 1)];
@@ -154,7 +139,7 @@ function spawnPoints(room, rng, n) {
 export function buildWaves(room, rng) {
   const round = room.round;
   // scale the enemy budget with the (now city-scale) room so the sprawl stays full of action
-  const areaMult = clamp(Math.sqrt((room.w * room.h) / (1500 * 1020)), 1, 2.6);
+  const areaMult = clamp(Math.sqrt((room.w * room.h) / (1500 * 1020)), 1, 2.45);
 
   if (room.bossId) {
     // boss arena: the boss is present as the room reveals; two escort waves follow
@@ -170,7 +155,7 @@ export function buildWaves(room, rng) {
         spawns: Array.from({ length: n }, (_, i) => {
           const c = clusters[i % clusters.length];
           const p = jitterSpawn(room, rng, c, 60, 50);
-          return { type: escorts[i % escorts.length], x: p.x, y: p.y, delay: i * 0.15 };
+          return { type: escorts[i % escorts.length], x: p.x, y: p.y, delay: i * 0.09 };
         }),
       });
     }
@@ -193,19 +178,18 @@ export function buildWaves(room, rng) {
   const splitAt = Math.max(2, Math.round(comp.length * DIRECTOR.REINFORCE_AT));
   const first = comp.slice(0, splitAt);
   const second = comp.slice(splitAt);
-  const clusters = spawnPoints(room, rng, clamp(Math.ceil(first.length / 2.4), 2, 5));
+  const clusters = spawnPoints(room, rng, clamp(Math.ceil(first.length / 2.1), 3, 7));
   room.pendingWaves = [];
 
   const firstSpawns = first.map((type, i) => {
     const c = clusters[i % clusters.length];
     const p = jitterSpawn(room, rng, c, 70, 55);
-    return { type, x: p.x, y: p.y, delay: 0.45 + i * 0.12 };
+    return { type, x: p.x, y: p.y, delay: 0.16 + i * 0.075 };
   });
-  // High ground should be a reason to climb, not a single novelty perch. With a full
-  // rooftop grid, seed enemies across many roofs so the rails/vents are a real combat
-  // route and you find the fight up top instead of hunting for it.
+  // High ground should be a reason to climb, not a single novelty perch.
+  // Seed multiple upper-layer enemies so rails/vents turn into a real combat route.
   if (room.tiers && room.tiers.length) {
-    const perches = [...room.tiers].sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, view.mobile ? 3 : 6);
+    const perches = room.tiers.slice(0, view.mobile ? 2 : 4);
     for (let i = 0; i < perches.length; i++) {
       const t = perches[i];
       const perch = ENEMY_TYPES.sniper.from <= round && i % 2 === 0 ? 'sniper'
@@ -214,7 +198,7 @@ export function buildWaves(room, rng) {
       const x = t.x + t.w * rand(rng, 0.34, 0.66);
       const y = t.y + t.h * rand(rng, 0.34, 0.62);
       const spot = firstSpawns.find(s => !s._perched && (s.type === perch || i === 0)) || null;
-      const data = { type: perch, x, y, delay: 0.25 + i * 0.16, _perched: true };
+      const data = { type: perch, x, y, delay: 0.12 + i * 0.10, _perched: true };
       if (spot) Object.assign(spot, data);
       else firstSpawns.push(data);
     }
@@ -272,11 +256,11 @@ export function tickDirector(room, dt) {
       for (const s of wave.spawns) spawnTelegraphed(room, s.type, s.x, s.y, DIRECTOR.TELEGRAPH + s.delay, s.captain);
     } else if (wave.list?.length) {
       const rng = Math.random;
-      const clusters = spawnPoints(room, rng, clamp(Math.ceil(wave.list.length / 2.6), 1, 4));
+      const clusters = spawnPoints(room, rng, clamp(Math.ceil(wave.list.length / 2.2), 2, 6));
       wave.list.forEach((type, i) => {
         const c = clusters[i % clusters.length];
         const p = jitterSpawn(room, rng, c, 70, 55);
-        spawnTelegraphed(room, type, p.x, p.y, DIRECTOR.TELEGRAPH + i * 0.14);
+        spawnTelegraphed(room, type, p.x, p.y, DIRECTOR.TELEGRAPH + i * 0.08);
       });
       if (room.enemies.length) addFloat(room, room.w / 2, room.wall + 70, '!', room.biome.pal.bad);
     }

@@ -23,7 +23,7 @@ export function spawnBullet(room, owner, x, y, vx, vy, r, damage, life, color, o
 }
 
 export function fireEnemyShot(room, e, dx, dy, speed, r, life, color) {
-  return spawnBullet(room, 'enemy', e.x + dx * (e.r + 6), e.y + dy * (e.r + 6), dx * speed, dy * speed, r, 1, life, color || e.color, { level: e.level || 0 });
+  return spawnBullet(room, 'enemy', e.x + dx * (e.r + 6), e.y + dy * (e.r + 6), dx * speed, dy * speed, r, 1, life, color || e.color, { level: e.boss ? 1 : (e.level || 0) });
 }
 
 // No Moon's two firing grammars (game_inline.js:5124-5167)

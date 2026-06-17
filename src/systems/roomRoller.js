@@ -70,11 +70,10 @@ export function rollRoom(run, round) {
     biome, layoutId, recipeId, mutatorId: mutator?.id || null, mutator, eventId: null, bossId,
     floorplanId: 'none', openings: [], sanctum: null, tiers: [], vents: [], setpieces: [],
     districts: [], flowLanes: [], skyRails: [], skyways: [], signs: [], traffic: [], districtName: '', districtSubtitle: '', backgroundScale: 1,
-    // Endless-city sprawl — a LOT of ground to grind across, laid out as a rooftop
-    // grid (second layer) wired together by sky rails. Density (cover, ambient, enemy
-    // budget) scales with area below so the bigger floor never reads as vacant.
-    w: Math.round((portrait ? rand(rng, 2050, 2450) : rand(rng, bossId ? 3300 : 4400, bossId ? 4000 : 5200)) * sizeScale * deviceScale),
-    h: Math.round((portrait ? rand(rng, 2550, 3050) : rand(rng, bossId ? 2500 : 3050, bossId ? 3000 : 3650)) * sizeScale * deviceScale),
+    // city-scale sprawl — give the player a LOT of ground to dash across. Density
+    // (cover, ambient, enemy budget) scales with area below so the space stays full.
+    w: Math.round((portrait ? rand(rng, 2300, 2700) : rand(rng, bossId ? 4200 : 5400, bossId ? 5000 : 6400)) * sizeScale * deviceScale),
+    h: Math.round((portrait ? rand(rng, 3100, 3700) : rand(rng, bossId ? 3100 : 3800, bossId ? 3800 : 4600)) * sizeScale * deviceScale),
     wall: ROOM.WALL,
     obstacles: [], landmarks: [], annex: null, hazards: [], lanes: [], edgeRail: { phase: rng() * TAU },
     enemies: [], bullets: [], pickups: [], particles: [], floats: [],
@@ -97,9 +96,8 @@ export function rollRoom(run, round) {
   if (!bags.floorplan) bags.floorplan = new Bag(FLOORPLAN_IDS, 2);
   // Weighted open-room roll happens outside the Bag. Duplicate 'none' cards get
   // suppressed by Bag recent-history, so this is the honest way to control partition rate.
-  // The rooftop-grid (seedVerticality) is now the room's primary structure, so interior
-  // partition walls are rarer — 0.62 → only ~38% of non-boss rooms add chambers on top.
-  const openChance = 0.62;
+  // 0.38 → ~62% of non-boss rooms get chambers (player likes the walls). Dial up for fewer.
+  const openChance = 0.74;
   let floorplanId = (bossId || chance(rng, openChance)) ? 'none' : bags.floorplan.deal(rng);
   if (floorplanId !== 'none') {
     const plan = FLOORPLANS[floorplanId](room, rng, room.idx);
@@ -119,12 +117,6 @@ export function rollRoom(run, round) {
   room.floorplanId = floorplanId;
   const partitioned = floorplanId !== 'none';
 
-  // ── second layer FIRST: lay the rooftop-grid (the city blocks) before any cover so
-  // the scatter fills the STREETS between blocks instead of piling on top of rooftops.
-  // This is the structural change — every part of the map gets an upper layer you can
-  // grind across, and the ground reads as organized streets, not a jumble. ──
-  if (!bossId) seedVerticality(room, rng, px, py, portalX, portalY, partitioned);
-
   // ── axis 2 continued: obstacles from the layout generator ──
   const density = (RECIPES[recipeId]?.density || 0);
   // Big rooms need a visual/combat anchor before scatter, so cover arranges around
@@ -134,9 +126,9 @@ export function rollRoom(run, round) {
   // (kept moderate — the sprawl reads full from ambient/decals/enemies, not a cover maze).
   const areaBonus = Math.max(2, Math.round((roomAreaScale(room) - 1) * 6));
   // cap scales with area so cover density holds across the much bigger sprawl
-  const coverCap = Math.round((partitioned ? 22 : 28) * clamp(roomAreaScale(room) / 4, 1, 2.1));
-  const count = clamp(6 + density + areaBonus + Math.floor(room.stage * 0.45) + randi(rng, 0, 2)
-    - (partitioned ? 2 : 0) - (landmark ? 2 : 0), partitioned ? 4 : 6, coverCap);
+  const coverCap = Math.round((partitioned ? 22 : 30) * clamp(roomAreaScale(room) / 5.8, 1, 1.75));
+  const count = clamp(7 + density + Math.floor(areaBonus * 0.78) + Math.floor(room.stage * 0.5) + randi(rng, 0, 2)
+    - (partitioned ? 2 : 0) - (landmark ? 2 : 0), partitioned ? 4 : 7, coverCap);
   const spots = LAYOUTS[layoutId](room, rng, count);
   for (const s of spots) {
     if (dist(s.x, s.y, px, py) < ROOM.SPAWN_CLEAR) continue;
@@ -168,11 +160,11 @@ export function rollRoom(run, round) {
   const forceRubble = !bossId && !partitioned && !landmark;
   if (!bossId && (forceRubble || chance(rng, partitioned ? 0.36 : 0.48))) rubbleField(room, rng, px, py, portalX, portalY);
 
-  // ── elevation wiring: the rooftop grid was already laid above; now thread it with
-  // vent on-ramps (fast climbs) and a fully-connected sky-rail network (cross the whole
-  // second layer without touching the ground), then stock the rooftops with rewards.
-  if (!bossId && room.tiers.length) seedVents(room, rng, px, py, portalX, portalY);
-  if (!bossId && room.tiers.length) seedSkyRails(room, rng);
+  // ── elevation: more second-layer rooms, plus vent launchers to make climbing
+  // feel like movement tech instead of just walking at a ramp.
+  seedVerticality(room, rng, px, py, portalX, portalY, partitioned);
+  if (room.tiers.length) seedVents(room, rng, px, py, portalX, portalY);
+  if (room.tiers.length) seedSkyRails(room, rng);
   if (!bossId && room.tiers.length) seedHighGroundRewards(room, rng);
   seedLandmarkProps(room, rng, px, py, portalX, portalY);
   if (!bossId) seedRoomShop(room, rng, run, px, py, portalX, portalY);
@@ -249,7 +241,7 @@ export function rollRoom(run, round) {
 
   // ── ambient particles ──
   // ambient drift fills the sprawl with life (the cheap, non-obstructive kind of "full")
-  const ambN = Math.round((view.mobile ? 30 : 52) * Math.min(2.6, Math.sqrt(roomAreaScale(room))));
+  const ambN = Math.round((view.mobile ? 42 : 82) * Math.min(3.2, Math.sqrt(roomAreaScale(room))));
   for (let i = 0; i < ambN; i++) {
     room.ambient.push({
       type: pick(rng, biome.ambient), x: rng() * room.w, y: rng() * room.h,
@@ -263,6 +255,7 @@ export function rollRoom(run, round) {
   // ── axis 5: room event (the spice slot) ──
   rollEvent(room, rng);
   pruneUnreachableTiers(room, px, py);
+  ensureMinimumVerticality(room, rng, px, py, portalX, portalY);
   sanitizePendingSpawns(room, rng, px, py, portalX, portalY);
 
   // ── bake the background once ──
@@ -385,6 +378,8 @@ function placeDashBell(room, rng, px, py, portalX, portalY) {
 }
 
 function pointBlockedForSpawn(room, x, y, pad = 42) {
+  const a = room.annex;
+  if (a && !a.opened && a.rect && x > a.rect.x - pad && x < a.rect.x + a.rect.w + pad && y > a.rect.y - pad && y < a.rect.y + a.rect.h + pad) return true;
   for (const o of room.obstacles) {
     if (o.gone) continue;
     if (o.type === 'circle') { if (dist(x, y, o.x, o.y) < o.rad + pad) return true; }
@@ -397,6 +392,27 @@ function pointBlockedForSpawn(room, x, y, pad = 42) {
 }
 
 function findReachableSpawn(room, rng, reach, px, py) {
+  const legal = (x, y, minD = 420) => dist(x, y, px, py) >= minD && pointBlockedForSpawn(room, x, y) === false && reach.has(x, y);
+  // Most anchors are near the boost lanes. Huge maps stay exciting only when
+  // combat spawns in the movement network, not in quiet corners the player has to search.
+  for (let tries = 0; tries < 70 && room.flowLanes?.length; tries++) {
+    const l = pick(rng, room.flowLanes);
+    const at = rand(rng, 0.08, 0.92), dx = l.x2 - l.x1, dy = l.y2 - l.y1;
+    const len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+    const off = rand(rng, -(l.width || 96) * 1.15, (l.width || 96) * 1.15);
+    const x = clamp(l.x1 + dx * at + nx * off, room.wall + 92, room.w - room.wall - 92);
+    const y = clamp(l.y1 + dy * at + ny * off, room.wall + 92, room.h - room.wall - 92);
+    if (legal(x, y, 520)) return { x, y };
+  }
+  // District fallback keeps the spawn clusters inside actual places instead of
+  // at arbitrary wall edges.
+  for (let tries = 0; tries < 54 && room.districts?.length; tries++) {
+    const d = pick(rng, room.districts.filter(d => d.kind !== 'spawn' && d.kind !== 'exit') || []);
+    if (!d) break;
+    const x = clamp(d.cx + rand(rng, -d.w * 0.34, d.w * 0.34), room.wall + 92, room.w - room.wall - 92);
+    const y = clamp(d.cy + rand(rng, -d.h * 0.34, d.h * 0.34), room.wall + 92, room.h - room.wall - 92);
+    if (legal(x, y, 520)) return { x, y };
+  }
   for (let tries = 0; tries < 80; tries++) {
     const side = randi(rng, 0, 3), w = room.wall;
     const x = side === 1 ? room.w - w - rand(rng, 90, 230)
@@ -405,8 +421,7 @@ function findReachableSpawn(room, rng, reach, px, py) {
     const y = side === 0 ? w + rand(rng, 90, 210)
       : side === 2 ? room.h - w - rand(rng, 90, 210)
       : rand(rng, w + 120, room.h - w - 120);
-    if (dist(x, y, px, py) < 460 || pointBlockedForSpawn(room, x, y) || !reach.has(x, y)) continue;
-    return { x, y };
+    if (legal(x, y, 460)) return { x, y };
   }
   const cells = Array.from(reach.cells || []);
   for (let tries = 0; tries < 120 && cells.length; tries++) {
@@ -434,7 +449,7 @@ function sanitizePendingSpawns(room, rng, px, py, portalX, portalY) {
   // a big-room wall structure can make a random edge spawn technically legal
   // but unreachable — the worst kind of haunted bullshit.
   room.spawnAnchors = [];
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < (view.mobile ? 28 : 42); i++) {
     const p = findReachableSpawn(room, rng, reach, px, py);
     if (!room.spawnAnchors.some(a => dist(a.x, a.y, p.x, p.y) < 125)) room.spawnAnchors.push(p);
   }
@@ -454,12 +469,6 @@ function fits(room, o, margin = 20) {
   const w = room.wall, b = aabb(o);
   if (b.x < w + 10 || b.y < w + 10 || b.x + b.w > room.w - w - 10 || b.y + b.h > room.h - w - 10) return false;
   if (!o.allowLane && nearProtectedFlowLane(room, o, margin)) return false; // keep boost boulevards clear
-  // Keep ground cover out of rooftop footprints so the second layer stays clean and the
-  // streets stay readable (organization). Things meant to sit on a platform set level>0
-  // (rooftop rewards) or allowTier, and bypass this.
-  if (!o.allowTier && !(o.level > 0) && room.tiers?.length) {
-    for (const t of room.tiers) if (rectOverlap(b, t, 18)) return false;
-  }
   for (const other of room.obstacles) {
     const a = aabb(other);
     if (b.x < a.x + a.w + margin && b.x + b.w + margin > a.x &&
@@ -525,72 +534,160 @@ export function reachableFrom(room, sx, sy) {
   };
 }
 
-// Second layer = a GRID of rooftop blocks (the "city blocks"). Cols/rows scale with
-// the floor so a rooftop is always near you; the gaps between blocks are wide streets
-// that stay connected at ground level, and every rooftop is wired to its neighbours by
-// sky rails (seedSkyRails) so you can grind across the entire upper layer without ever
-// touching the ground. Laying blocks on a clean lattice (instead of scattering them on
-// top of each other) is the organization fix the brief asked for.
 function seedVerticality(room, rng, px, py, portalX, portalY, partitioned) {
-  const cols = view.mobile ? 3 : (room.w > 4700 ? 5 : 4);
-  const rows = view.mobile ? 3 : (room.h > 3400 ? 4 : 3);
-  const m = room.wall + 64;
-  const cw = (room.w - m * 2) / cols, ch = (room.h - m * 2) / rows;
-  // street = how much of each cell stays open ground around the rooftop
-  const street = clamp(Math.min(cw, ch) * 0.32, 150, 320);
-  const cap = view.mobile ? 7 : 16;
-  const cellOf = (x, y) => [clamp(Math.floor((x - m) / cw), 0, cols - 1), clamp(Math.floor((y - m) / ch), 0, rows - 1)];
-  const [scx, scr] = cellOf(px, py);          // spawn cell stays an open ground plaza
-  const [pcx, pcr] = cellOf(portalX, portalY); // portal cell stays an open ground plaza
-  // a few ground courtyards for variety + guaranteed street connectivity
-  const skip = partitioned ? 0.30 : 0.13;
+  // The second layer is no longer a novelty perch: every city rolls a
+  // readable rooftop lattice, then fills any gaps with extra roof districts. The
+  // platforms are organized by the visual district grid, so the map feels built
+  // instead of scattered.
+  const wantsTier = chance(rng, partitioned ? 0.94 : 1.0);
+  if (!wantsTier) return 0;
+  const cap = room.bossId ? (view.mobile ? 4 : 7) : view.mobile ? (partitioned ? 5 : 6) : (partitioned ? 8 : 12);
+  let made = seedRooftopGrid(room, rng, px, py, portalX, portalY, partitioned, cap);
+  const target = room.bossId
+    ? clamp(view.mobile ? 3 : 5, 3, cap)
+    : clamp((partitioned ? 4 : 7) + (room.idx >= 3 ? 1 : 0) + (room.idx >= 6 && !view.mobile ? 1 : 0), view.mobile ? 4 : 6, cap);
+  for (let tries = 0; room.tiers.length < target && tries < cap * 4; tries++) {
+    if (maybeTier(room, rng, px, py, portalX, portalY, { smaller: tries > 0, partitioned, dense: true, fullMap: true })) made++;
+  }
+  const minRoofs = room.bossId ? (view.mobile ? 3 : 5) : (view.mobile ? 4 : 6);
+  if (room.tiers.length < minRoofs) made += seedOpenRooftopFallback(room, rng, px, py, portalX, portalY, minRoofs, cap);
+  return made;
+}
+
+
+function seedOpenRooftopFallback(room, rng, px, py, portalX, portalY, minRoofs, cap) {
+  const reach = reachableFrom(room, px, py);
+  const districts = (room.districts || [])
+    .filter(d => d.kind !== 'spawn' && d.kind !== 'exit')
+    .sort((a, b) => Math.abs(a.cy - room.h * 0.48) - Math.abs(b.cy - room.h * 0.48));
   let made = 0;
-  for (let r = 0; r < rows && made < cap; r++) {
-    for (let c = 0; c < cols && made < cap; c++) {
-      if (c === scx && r === scr) continue;
-      if (c === pcx && r === pcr) continue;
-      if (chance(rng, skip)) continue;
-      const tw = cw - street, th = ch - street;
-      if (tw < 230 || th < 190) continue;
-      // ≤12% organized jitter so the lattice never looks mechanically perfect
-      const jx = (cw - tw) * 0.5 + rand(rng, -1, 1) * Math.min(26, (cw - tw) * 0.12);
-      const jy = (ch - th) * 0.5 + rand(rng, -1, 1) * Math.min(22, (ch - th) * 0.12);
-      if (placeGridTier(room, rng, m + c * cw + jx, m + r * ch + jy, tw, th, px, py, portalX, portalY, c, r)) made++;
+  const pushTier = (rect, districtId = null) => {
+    if (room.tiers.length >= cap) return false;
+    const tw = clamp(rect.w, view.mobile ? 230 : 300, view.mobile ? 560 : 760);
+    const th = clamp(rect.h, view.mobile ? 180 : 220, view.mobile ? 430 : 560);
+    const tx = clamp(rect.x, room.wall + 96, room.w - room.wall - 96 - tw);
+    const ty = clamp(rect.y, room.wall + 96, room.h - room.wall - 112 - th);
+    const candidate = { x: tx, y: ty, w: tw, h: th };
+    const cx = tx + tw / 2, cy = ty + th / 2;
+    if (dist(cx, cy, px, py) < 390 || dist(cx, cy, portalX, portalY) < 260 || !reach.has(cx, cy)) return false;
+    if (room.tiers.some(t => rectOverlap(candidate, t, 76))) return false;
+    const tierId = room._nextTierId = (room._nextTierId || 0) + 1;
+    const gap = clamp(tw * 0.42, 170, 300);
+    const rampX = tx + tw * rand(rng, 0.34, 0.66);
+    room.tiers.push({ id: tierId, districtId, open: true, x: tx, y: ty, w: tw, h: th, height: 1, ramp: { x: rampX, y: ty + th, w: gap, edge: 's' }, phase: rng() * TAU });
+    room.landmarks.push({ kind: 'openRoof', x: cx, y: cy });
+    made++;
+    return true;
+  };
+  for (const d of districts) {
+    if (room.tiers.length >= minRoofs || room.tiers.length >= cap) break;
+    for (let tries = 0; tries < 5; tries++) {
+      const tw = clamp(d.w * rand(rng, 0.42, 0.62), view.mobile ? 230 : 300, view.mobile ? 520 : 720);
+      const th = clamp(d.h * rand(rng, 0.36, 0.55), view.mobile ? 180 : 220, view.mobile ? 390 : 520);
+      if (pushTier({ x: d.cx - tw / 2 + rand(rng, -d.w * 0.08, d.w * 0.08), y: d.cy - th / 2 + rand(rng, -d.h * 0.08, d.h * 0.08), w: tw, h: th }, d.id)) break;
     }
+  }
+  // Absolute safety net: use reachable cells in quiet spaces if an aggressive
+  // floorplan left too few district-sized roof pads.
+  const cells = Array.from(reach.cells || []);
+  for (let tries = 0; room.tiers.length < minRoofs && tries < 180 && cells.length; tries++) {
+    const raw = cells[Math.floor(rng() * cells.length)];
+    const c = typeof raw === 'number' ? raw % reach.cols : Number(String(raw).split(',')[0]);
+    const r = typeof raw === 'number' ? Math.floor(raw / reach.cols) : Number(String(raw).split(',')[1]);
+    const cx = c * CELL + CELL / 2, cy = r * CELL + CELL / 2;
+    const tw = rand(rng, view.mobile ? 240 : 320, view.mobile ? 420 : 560);
+    const th = rand(rng, view.mobile ? 180 : 220, view.mobile ? 330 : 440);
+    pushTier({ x: cx - tw / 2, y: cy - th / 2, w: tw, h: th }, null);
   }
   return made;
 }
 
-// Place one rooftop block: a rect tier whose perimeter is ledge walls, with a ramp gap
-// on the bottom (street-facing) edge. Ledges always block movement and block low bullets
-// (high ground); the ramp lets you walk/drive up. Validated for spawn clearance + portal
-// reachability + keeping older rooftops reachable; bails cleanly if it can't fit.
-function placeGridTier(room, rng, tx, ty, tw, th, px, py, portalX, portalY, gridC, gridR) {
-  const T = 26, pad = 78;
-  const hit = (qx, qy) => qx > tx - pad && qx < tx + tw + pad && qy > ty - pad && qy < ty + th + pad;
-  if (hit(px, py) || hit(portalX, portalY)) return false;
-  const gap = clamp(rand(rng, 168, 208), 150, tw * 0.62);
-  const rgx = tx + tw * rand(rng, 0.42, 0.58);
+function seedRooftopGrid(room, rng, px, py, portalX, portalY, partitioned, cap) {
+  const districts = (room.districts || [])
+    .filter(d => d.kind !== 'spawn' && d.kind !== 'exit')
+    .map((d, i) => ({ d, i, score: Math.abs(d.cy - room.h * 0.48) + Math.abs(d.cx - room.w * 0.5) * 0.18 + rng() * 180 }))
+    .sort((a, b) => a.score - b.score);
+  // Alternate center-out with edge districts so the top layer crosses the whole city,
+  // not just the middle.
+  const edge = [...districts].sort((a, b) => Math.abs(b.d.cx - room.w / 2) + Math.abs(b.d.cy - room.h / 2) - (Math.abs(a.d.cx - room.w / 2) + Math.abs(a.d.cy - room.h / 2)));
+  const order = [];
+  while (districts.length || edge.length) {
+    if (districts.length) order.push(districts.shift());
+    if (edge.length) order.push(edge.shift());
+  }
+  let made = 0;
+  for (const entry of order) {
+    if (room.tiers.length >= cap) break;
+    const d = entry.d;
+    const tw = clamp(d.w * rand(rng, 0.58, 0.78), view.mobile ? 300 : 360, view.mobile ? 620 : 860);
+    const th = clamp(d.h * rand(rng, 0.50, 0.70), view.mobile ? 220 : 260, view.mobile ? 500 : 660);
+    const rect = {
+      x: d.cx - tw / 2 + rand(rng, -d.w * 0.06, d.w * 0.06),
+      y: d.cy - th / 2 + rand(rng, -d.h * 0.06, d.h * 0.06),
+      w: tw,
+      h: th,
+    };
+    if (tryPlaceTierRect(room, rng, px, py, portalX, portalY, rect, { districtId: d.id, ordered: true, partitioned })) made++;
+  }
+  return made;
+}
+
+// Place one raised platform: a rect tier whose perimeter is ledge walls, with a
+// ramp gap. Ledges block movement always and block low bullets (high-ground); the
+// ramp/vents/sky-rails make the roof reachable. Validated for spawn clearance,
+// portal reachability, and older rooftop reachability.
+function maybeTier(room, rng, px, py, portalX, portalY, opts = {}) {
+  const scale = opts.smaller ? rand(rng, opts.dense ? 0.50 : 0.66, opts.dense ? 0.76 : 0.86) : (opts.dense ? rand(rng, 0.82, 1.0) : 1);
+  const tw = room.w * rand(rng, opts.partitioned ? 0.12 : 0.13, opts.partitioned ? 0.20 : 0.23) * scale;
+  const th = room.h * rand(rng, opts.partitioned ? 0.10 : 0.11, opts.partitioned ? 0.18 : 0.20) * scale;
+  for (let tries = 0; tries < 42; tries++) {
+    const upperBias = opts.fullMap ? rand(rng, 0.18, 0.72) : rand(rng, 0.18, opts.partitioned ? 0.58 : 0.54);
+    const tx = rand(rng, room.wall + 92, room.w - room.wall - 92 - tw);
+    const ty = clamp(room.h * upperBias - th / 2 + rand(rng, -180, 180), room.wall + 92, room.h - room.wall - 160 - th);
+    if (tryPlaceTierRect(room, rng, px, py, portalX, portalY, { x: tx, y: ty, w: tw, h: th }, opts)) return true;
+  }
+  return false;
+}
+
+function tryPlaceTierRect(room, rng, px, py, portalX, portalY, rawRect, opts = {}) {
+  const T = 26;
+  const tw = clamp(rawRect.w, view.mobile ? 270 : 330, view.mobile ? 700 : 940);
+  const th = clamp(rawRect.h, view.mobile ? 200 : 240, view.mobile ? 560 : 720);
+  const tx = clamp(rawRect.x, room.wall + 92, room.w - room.wall - 92 - tw);
+  const ty = clamp(rawRect.y, room.wall + 92, room.h - room.wall - 120 - th);
+  const rect = { x: tx, y: ty, w: tw, h: th };
+  const pad = opts.partitioned ? 110 : 150;
+  const hit = (qx, qy, extra = 0) => qx > tx - pad - extra && qx < tx + tw + pad + extra && qy > ty - pad - extra && qy < ty + th + pad + extra;
+  if (hit(px, py, 80) || hit(portalX, portalY, 70)) return false;
+  if (room.tiers.some(t => rectOverlap(rect, t, opts.ordered ? 92 : 120))) return false;
+  if (nearProtectedFlowLane(room, { type: 'rect', x: tx, y: ty, w: tw, h: th }, opts.ordered ? -86 : -48, opts.ordered ? 'tierCore' : 'tier')) return false;
+
+  // ramp on the bottom edge: because spawn is low in the room, this keeps roof access
+  // intuitive. Vents/rails provide the breakneck access everywhere else.
+  const gap = clamp(tw * rand(rng, 0.22, 0.31), 165, 265);
+  const rgx = clamp(tx + tw * rand(rng, 0.34, 0.66), tx + gap / 2 + T, tx + tw - gap / 2 - T);
   const tierId = room._nextTierId = (room._nextTierId || 0) + 1;
   const ledges = [
-    wallSlab(tx - T / 2, ty - T / 2, tw + T, T),                                       // top
-    wallSlab(tx - T / 2, ty + th - T / 2, (rgx - gap / 2) - (tx - T / 2), T),           // bottom-left
-    wallSlab(rgx + gap / 2, ty + th - T / 2, (tx + tw + T / 2) - (rgx + gap / 2), T),   // bottom-right
-    wallSlab(tx - T / 2, ty - T / 2, T, th + T),                                        // left
-    wallSlab(tx + tw - T / 2, ty - T / 2, T, th + T),                                   // right
+    wallSlab(tx - T / 2, ty - T / 2, tw + T, T),
+    wallSlab(tx - T / 2, ty + th - T / 2, (rgx - gap / 2) - (tx - T / 2), T),
+    wallSlab(rgx + gap / 2, ty + th - T / 2, (tx + tw + T / 2) - (rgx + gap / 2), T),
+    wallSlab(tx - T / 2, ty - T / 2, T, th + T),
+    wallSlab(tx + tw - T / 2, ty - T / 2, T, th + T),
   ];
   for (const l of ledges) l.tierId = tierId;
   const before = room.obstacles.length;
   room.obstacles.push(...ledges);
   const reach = reachableFrom(room, px, py);
-  const olderOk = room.tiers.every(t => reach.has(t.x + t.w / 2, t.y + t.h / 2));
-  if (!reach.has(portalX, portalY) || !reach.has(tx + tw / 2, ty + th / 2) || !olderOk) {
-    room.obstacles.length = before; return false;
+  const keepsOlderTiersReachable = room.tiers.every(t => reach.has(t.x + t.w / 2, t.y + t.h / 2));
+  if (!reach.has(portalX, portalY) || !reach.has(tx + tw / 2, ty + th / 2) || !keepsOlderTiersReachable) {
+    room.obstacles.length = before;
+    return false;
   }
-  room.tiers.push({ id: tierId, x: tx, y: ty, w: tw, h: th, height: 1, ramp: { x: rgx, y: ty + th, w: gap }, phase: rng() * TAU, gridC, gridR });
+  room.tiers.push({ id: tierId, districtId: opts.districtId ?? null, x: tx, y: ty, w: tw, h: th, height: 1, ramp: { x: rgx, y: ty + th, w: gap, edge: 's' }, phase: rng() * TAU });
   room.landmarks.push({ kind: 'highGround', x: tx + tw / 2, y: ty + th / 2 });
   return true;
 }
+
 function wallSlab(x, y, w, h) {
   return { type: 'rect', x, y, w: Math.max(8, w), h: Math.max(8, h), wall: true, ledge: true, ledgeHeight: 1, style: 'ledge', round: 3 };
 }
@@ -598,6 +695,25 @@ function wallSlab(x, y, w, h) {
 function rectOverlap(a, b, margin = 0) {
   return a.x < b.x + b.w + margin && a.x + a.w + margin > b.x
     && a.y < b.y + b.h + margin && a.y + a.h + margin > b.y;
+}
+
+
+function ensureMinimumVerticality(room, rng, px, py, portalX, portalY) {
+  const minRoofs = room.bossId ? (view.mobile ? 3 : 5) : (view.mobile ? 4 : 6);
+  if ((room.tiers || []).length >= minRoofs) return;
+  const cap = room.bossId ? (view.mobile ? 4 : 7) : view.mobile ? 6 : 12;
+  const before = room.tiers.length;
+  seedOpenRooftopFallback(room, rng, px, py, portalX, portalY, minRoofs, cap);
+  pruneUnreachableTiers(room, px, py);
+  if (room.tiers.length > before || !room.vents?.length || !room.skyRails?.length) {
+    room.vents = [];
+    room.skyRails = [];
+    room._nextVentId = 1;
+    if (room.tiers.length) {
+      seedVents(room, rng, px, py, portalX, portalY);
+      seedSkyRails(room, rng);
+    }
+  }
 }
 
 function pruneUnreachableTiers(room, px, py) {
@@ -617,36 +733,67 @@ function pruneUnreachableTiers(room, px, py) {
 
 function pointInRect(x, y, r) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
 
-// Vents are UP-ONLY on-ramps: a fan in the street throws you onto the rooftop. There
-// are NO down-fans anymore — you come down by walking a ramp or peeling off a rail.
-// Removing the down-fan (plus the player.js "leave the zone before re-firing" guard)
-// permanently kills the updraft↔dropfan loop that used to bounce the player back and
-// forth and force them to "break away hard" to escape.
 function seedVents(room, rng, px, py, portalX, portalY) {
   const reach = reachableFrom(room, px, py);
-  const cap = view.mobile ? 4 : 8;
-  const placedPts = [];
-  // Rooftops farthest from spawn get an on-ramp first — that's where a fast climb helps.
-  const farFirst = [...room.tiers].sort((a, b) =>
-    dist(b.x + b.w / 2, b.y + b.h / 2, px, py) - dist(a.x + a.w / 2, a.y + a.h / 2, px, py));
-  for (const t of farFirst) {
-    if (room.vents.length >= cap) break;
-    const target = { x: t.x + t.w * rand(rng, 0.38, 0.62), y: t.y + t.h * rand(rng, 0.34, 0.58) };
+  room._nextVentId = room._nextVentId || 1;
+  const addVent = (x, y, toX, toY, toLevel, kind = 'updraft', fromLevel = 0) => {
+    const v = { id: room._nextVentId++, x, y, r: 46, toX, toY, toLevel, fromLevel, kind, phase: rng() * TAU, flash: 0 };
+    room.vents.push(v);
+    room.landmarks.push({ kind: 'vent', x, y });
+    return v;
+  };
+  const landingClear = (x, y, level, pad = 132) => {
+    for (const v of room.vents || []) {
+      const originLevel = v.fromLevel ?? 0;
+      const destLevel = v.toLevel ?? 1;
+      // Never drop a player onto another launcher/fan. This was the source of the
+      // updraft→dropfan→updraft loop that made players fight the map instead of flow.
+      if (originLevel === level && dist(x, y, v.x, v.y) < pad) return false;
+      if (destLevel === level && dist(x, y, v.toX, v.toY) < pad * 0.78) return false;
+    }
+    return true;
+  };
+  const tiers = [...(room.tiers || [])].sort((a, b) => (a.y + a.h * 0.5) - (b.y + b.h * 0.5));
+  for (const t of tiers) {
+    const target = { x: t.x + t.w * rand(rng, 0.36, 0.64), y: t.y + t.h * rand(rng, 0.30, 0.56) };
+    let placed = false;
     const candidates = [
-      { x: t.ramp.x + rand(rng, -40, 40), y: t.y + t.h + rand(rng, 92, 150) },   // just below the ramp
-      { x: t.x - rand(rng, 96, 150), y: t.y + t.h * rand(rng, 0.40, 0.70) },      // left street
-      { x: t.x + t.w + rand(rng, 96, 150), y: t.y + t.h * rand(rng, 0.40, 0.70) }, // right street
+      { x: t.ramp.x + rand(rng, -86, 86), y: t.y + t.h + rand(rng, 108, 235), tag: 'ramp' },
+      { x: t.x - rand(rng, 126, 230), y: t.y + t.h * rand(rng, 0.35, 0.78), tag: 'left' },
+      { x: t.x + t.w + rand(rng, 126, 230), y: t.y + t.h * rand(rng, 0.35, 0.78), tag: 'right' },
+      { x: t.x + t.w * rand(rng, 0.22, 0.78), y: t.y - rand(rng, 112, 220), tag: 'north' },
     ];
+    // On very large arenas, also seed a lane-facing launcher so the player can hit
+    // rooftops at speed from the city grid instead of hunting the one ramp.
+    if (room.flowLanes?.length) {
+      const lane = pick(rng, room.flowLanes);
+      const at = rand(rng, 0.18, 0.82);
+      candidates.unshift({
+        x: lane.x1 + (lane.x2 - lane.x1) * at + rand(rng, -90, 90),
+        y: lane.y1 + (lane.y2 - lane.y1) * at + rand(rng, -90, 90),
+        tag: 'lane',
+      });
+    }
     for (const c of candidates) {
-      const x = clamp(c.x, room.wall + 100, room.w - room.wall - 100);
-      const y = clamp(c.y, room.wall + 100, room.h - room.wall - 120);
-      if (!reach.has(x, y) || !ventClear(room, x, y, 64)) continue;
-      if (dist(x, y, px, py) < 200 || dist(x, y, portalX, portalY) < 150) continue;
-      if (placedPts.some(p => dist(p.x, p.y, x, y) < 260)) continue; // spread them along the streets
-      room.vents.push({ x, y, r: 46, toX: target.x, toY: target.y, toLevel: t.height || 1, fromLevel: 0, kind: 'updraft', phase: rng() * TAU, flash: 0 });
-      room.landmarks.push({ kind: 'vent', x, y });
-      placedPts.push({ x, y });
+      const x = clamp(c.x, room.wall + 105, room.w - room.wall - 105);
+      const y = clamp(c.y, room.wall + 105, room.h - room.wall - 125);
+      if (!reach.has(x, y) || !ventClear(room, x, y, 66) || !landingClear(x, y, 0, 154) || !landingClear(target.x, target.y, t.height, 118)
+        || dist(x, y, px, py) < 180 || dist(x, y, portalX, portalY) < 130) continue;
+      addVent(x, y, target.x, target.y, t.height, 'updraft', 0);
+      placed = true;
       break;
+    }
+    // Matching drop fans are exits, not traps: they sit away from the updraft landing
+    // and they are forbidden to land near another vent origin.
+    if (placed && roomAreaScale(room) > 3.2 && chance(rng, 0.66)) {
+      const fanX = clamp(t.x + t.w * rand(rng, 0.18, 0.82), t.x + 78, t.x + t.w - 78);
+      const fanY = clamp(t.y + t.h * rand(rng, 0.68, 0.88), t.y + 72, t.y + t.h - 58);
+      const outX = clamp(t.ramp.x + rand(rng, -175, 175), room.wall + 126, room.w - room.wall - 126);
+      const outY = clamp(t.y + t.h + rand(rng, 250, 410), room.wall + 126, room.h - room.wall - 126);
+      if (dist(fanX, fanY, target.x, target.y) > 180 && reach.has(outX, outY) && ventClear(room, outX, outY, 62)
+        && landingClear(fanX, fanY, t.height, 138) && landingClear(outX, outY, 0, 154)) {
+        addVent(fanX, fanY, outX, outY, 0, 'dropfan', t.height);
+      }
     }
   }
 }
@@ -663,24 +810,34 @@ function ventClear(room, x, y, pad) {
   return true;
 }
 
-// THE rail network. The whole point of the second layer: every rooftop is wired to
-// every other so you can grind across the entire upper map without landing. We link
-// grid-adjacent rooftops into a clean lattice of rails, then GUARANTEE one connected
-// network with a union-find pass that bridges any leftover islands. Rails run roof
-// centre → roof centre, so riding one to its end deposits you on the next rooftop.
 function seedSkyRails(room, rng) {
   const tiers = room.tiers || [];
   if (tiers.length < 2) return;
-  const center = (t) => ({ x: t.x + t.w / 2, y: t.y + t.h / 2 });
+  const point = (t, jitter = 0.24) => ({
+    x: t.x + t.w * rand(rng, 0.50 - jitter, 0.50 + jitter),
+    y: t.y + t.h * rand(rng, 0.42 - jitter * 0.35, 0.54 + jitter * 0.35),
+  });
+  const pairs = [];
+  for (let i = 0; i < tiers.length; i++) for (let j = i + 1; j < tiers.length; j++) {
+    const a = tiers[i], b = tiers[j];
+    const ax = a.x + a.w / 2, ay = a.y + a.h * 0.48;
+    const bx = b.x + b.w / 2, by = b.y + b.h * 0.48;
+    pairs.push({ a, b, d: dist(ax, ay, bx, by) });
+  }
   const used = new Set();
+  const connected = new Set();
   const key = (a, b) => [a.id, b.id].sort((u, v) => u - v).join(':');
-  const addRail = (a, b, trunk) => {
-    if (used.has(key(a, b))) return false;
-    used.add(key(a, b));
-    const A = center(a), B = center(b);
+  const add = (pair, trunk = false) => {
+    if (!pair) return false;
+    const k = key(pair.a, pair.b);
+    if (used.has(k)) return false;
+    used.add(k);
+    connected.add(pair.a.id); connected.add(pair.b.id);
+    const A = point(pair.a, trunk ? 0.16 : 0.24), B = point(pair.b, trunk ? 0.16 : 0.24);
     room.skyRails.push({
-      x1: A.x, y1: A.y, x2: B.x, y2: B.y, a: a.id, b: b.id,
-      level: 1, width: trunk ? 48 : 40, boost: trunk ? 1190 : 1040, trunk,
+      x1: A.x, y1: A.y, x2: B.x, y2: B.y,
+      level: 1, width: trunk ? 58 : 46, boost: trunk ? 1500 : 1320,
+      trunk,
       color: chance(rng, 0.5) ? room.biome.pal.accent2 : room.biome.pal.accent3,
       phase: rng() * TAU,
     });
@@ -688,71 +845,52 @@ function seedSkyRails(room, rng) {
     return true;
   };
 
-  // 1) link 4-neighbour grid-adjacent rooftops → a street-grid of rails up top.
-  for (const a of tiers) for (const b of tiers) {
-    if (a.id >= b.id) continue;
-    const adjCol = a.gridR === b.gridR && Math.abs(a.gridC - b.gridC) === 1;
-    const adjRow = a.gridC === b.gridC && Math.abs(a.gridR - b.gridR) === 1;
-    if (adjCol || adjRow) addRail(a, b, false);
+  // One long express spine creates the city-wide rooftop route; then a minimum
+  // connector pass turns the upper layer into an actual network instead of islands.
+  const far = [...pairs].sort((a, b) => b.d - a.d);
+  add(far[0], true);
+  const maxRails = Math.min(view.mobile ? 9 : 22, pairs.length);
+  const near = [...pairs].sort((a, b) => a.d - b.d);
+  while (connected.size < tiers.length && room.skyRails.length < maxRails) {
+    const bridge = near.find(p => !used.has(key(p.a, p.b)) && (connected.has(p.a.id) !== connected.has(p.b.id)));
+    if (!bridge) break;
+    add(bridge, false);
   }
-
-  // 2) union-find: bridge the nearest tiers of any still-separate components until the
-  //    entire second layer is ONE network. This is the hard guarantee behind "everything
-  //    is connected via grind rails" — no rooftop can be a dead island.
-  const parent = new Map(tiers.map(t => [t.id, t.id]));
-  const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
-  const union = (x, y) => parent.set(find(x), find(y));
-  for (const r of room.skyRails) union(r.a, r.b);
-  for (let guard = tiers.length + 4; guard-- > 0;) {
-    if (new Set(tiers.map(t => find(t.id))).size <= 1) break;
-    let best = null, bestD = Infinity;
-    for (const a of tiers) for (const b of tiers) {
-      if (a.id >= b.id || find(a.id) === find(b.id)) continue;
-      const ca = center(a), cb = center(b), d = dist(ca.x, ca.y, cb.x, cb.y);
-      if (d < bestD) { bestD = d; best = [a, b]; }
-    }
-    if (!best) break;
-    addRail(best[0], best[1], true); // cross-district bridges read as express trunks
-    union(best[0].id, best[1].id);
+  for (const t of tiers) {
+    if (room.skyRails.length >= maxRails || connected.has(t.id)) continue;
+    const pair = near.find(p => (p.a === t || p.b === t) && !used.has(key(p.a, p.b))) || near.find(p => !used.has(key(p.a, p.b)));
+    add(pair, false);
   }
-
-  // 3) one long express spine across the whole map for momentum (the farthest free pair).
-  let far = null, farD = 0;
-  for (const a of tiers) for (const b of tiers) {
-    if (a.id >= b.id || used.has(key(a, b))) continue;
-    const ca = center(a), cb = center(b), d = dist(ca.x, ca.y, cb.x, cb.y);
-    if (d > farD) { farD = d; far = [a, b]; }
+  // Extra loops matter at breakneck speed: they give the player choices instead of
+  // a single forced commute across the roof layer.
+  const loopOrder = [...pairs].sort((a, b) => Math.abs(a.d - 820) - Math.abs(b.d - 820));
+  for (const pair of loopOrder) {
+    if (room.skyRails.length >= maxRails) break;
+    add(pair, false);
   }
-  if (far) addRail(far[0], far[1], true);
 }
 
 function seedHighGroundRewards(room, rng) {
   const tiers = room.tiers || [];
   if (!tiers.length) return;
-  // Stock most rooftops with a functional reward so the second layer is a place worth
-  // being — vaults, caches, gambit shrines, dash bells — not vacant platforms.
-  const max = Math.min(view.mobile ? 4 : 9, tiers.length);
+  const max = Math.min(view.mobile ? 3 : 6, tiers.length);
   const ordered = [...tiers].sort((a, b) => (b.w * b.h) - (a.w * a.h));
-  const kinds = ['cacheAltar', 'dashBell', 'cacheAltar', 'gambitAltar', 'dashBell'];
-  let ki = 0;
   for (let i = 0; i < max; i++) {
     const t = ordered[i];
-    if (i > 1 && chance(rng, 0.20)) continue; // a few roofs get only props (variety)
-    const species = i === 0 ? 'mirrorVault' : kinds[ki++ % kinds.length];
-    const isVault = species === 'mirrorVault';
-    const rad = isVault ? 52 : species === 'gambitAltar' ? 44 : species === 'dashBell' ? 32 : 41;
+    const species = i === 0 || chance(rng, 0.55) ? 'mirrorVault' : 'cacheAltar';
+    const rad = species === 'mirrorVault' ? 52 : 41;
     const o = {
       type: 'circle',
       x: t.x + t.w * rand(rng, 0.36, 0.64),
       y: t.y + t.h * rand(rng, 0.34, 0.60),
       rad,
-      style: isVault ? 'glassNode' : 'basilicaIdol',
+      style: species === 'mirrorVault' ? 'glassNode' : 'basilicaIdol',
       breakable: true,
       species,
-      hp: SPECIES[species].hp + room.idx * (isVault ? 1.7 : 1.2),
+      hp: SPECIES[species].hp + room.idx * (species === 'mirrorVault' ? 1.7 : 1.25),
       altar: true,
       level: t.height || 1,
-      secretSeal: isVault,
+      secretSeal: species === 'mirrorVault',
       archKind: 'skyCache',
       phase: rng() * TAU,
     };
@@ -796,20 +934,19 @@ function placeMysteryVault(room, rng, px, py, portalX, portalY) {
 
 function seedLandmarkProps(room, rng, px, py, portalX, portalY) {
   const kinds = ['holoTower', 'moonPool', 'signalPylon', 'marketArch', 'ghostBillboard', 'bridgeMast', 'liftBeacon'];
-  // Dense city dressing — the bigger sprawl should read as a packed skyline, never vacant.
-  const target = room.bossId ? randi(rng, 2, 4) : randi(rng, view.mobile ? 7 : 11, view.mobile ? 11 : 18);
-  for (let tries = 0; tries < 140 && room.setpieces.length < target; tries++) {
+  const target = room.bossId ? randi(rng, 4, 7) : randi(rng, view.mobile ? 9 : 16, view.mobile ? 14 : 26);
+  for (let tries = 0; tries < 220 && room.setpieces.length < target; tries++) {
     let x = rand(rng, room.wall + 190, room.w - room.wall - 190);
     let y = rand(rng, room.wall + 170, room.h - room.wall - 190);
-    // Bias most landmarks onto rooftops so the second layer is a dressed skyline and
-    // vents have an obvious place they're throwing you, not a random patch of floor.
-    if (room.tiers.length && tries < room.tiers.length * 4) {
+    // Bias a couple of landmarks toward high-ground destinations so vents have
+    // an obvious place they are throwing you, not a random patch of floor.
+    if (room.tiers.length && tries < room.tiers.length * 3) {
       const t = room.tiers[tries % room.tiers.length];
       x = t.x + t.w * rand(rng, 0.22, 0.78);
       y = t.y + t.h * rand(rng, 0.24, 0.72);
     }
     if (dist(x, y, px, py) < 250 || dist(x, y, portalX, portalY) < 170 || pointBlockedForSpawn(room, x, y, 58)) continue;
-    if (room.setpieces.some(s => dist(x, y, s.x, s.y) < 200)) continue;
+    if (room.setpieces.some(s => dist(x, y, s.x, s.y) < 190)) continue;
     const kind = pick(rng, kinds);
     room.setpieces.push({ kind, x, y, r: rand(rng, 34, 62), level: levelFor(room, x, y), phase: rng() * TAU, color: chance(rng, 0.5) ? room.biome.pal.accent2 : room.biome.pal.accent3 });
     room.landmarks.push({ kind, x, y });
@@ -946,12 +1083,9 @@ function buildAnnex(room, rng) {
     doorRect = { x: w + depth - 16, y: y + span * 0.3, w: 18, h: span * 0.4 };
     cx = w + depth * 0.45; cy = y + span / 2;
   }
-  // Don't let the sealed vault collide with a rooftop block — keep the layout tidy and
-  // the door clearly approachable from the street (organization).
-  if (room.tiers?.some(t => rectOverlap(rect, t, 40))) return false;
   const ambush = chance(rng, ANNEX.AMBUSH);
   room.annex = {
-    side, rect, opened: false, cx, cy,
+    side, rect, doorRect, opened: false, cx, cy,
     kind: ambush ? 'ambush' : 'secret',
     ambushType: pick(rng, ['skitter', 'skitter', 'gunner']),
     ambushCount: randi(rng, 2, 3),
@@ -961,28 +1095,28 @@ function buildAnnex(room, rng) {
   const t = 18;
   if (side === 'n') {
     room.obstacles.push(
-      { type: 'rect', x: rect.x - t, y: rect.y, w: t, h: rect.h, style: 'boundary', solidWall: true },
-      { type: 'rect', x: rect.x + rect.w, y: rect.y, w: t, h: rect.h, style: 'boundary', solidWall: true },
-      { type: 'rect', x: rect.x, y: rect.y + rect.h - 2, w: doorRect.x - rect.x, h: t, style: 'boundary', solidWall: true },
-      { type: 'rect', x: doorRect.x + doorRect.w, y: rect.y + rect.h - 2, w: rect.x + rect.w - doorRect.x - doorRect.w, h: t, style: 'boundary', solidWall: true },
+      { type: 'rect', x: rect.x - t, y: rect.y, w: t, h: rect.h, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
+      { type: 'rect', x: rect.x + rect.w, y: rect.y, w: t, h: rect.h, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
+      { type: 'rect', x: rect.x, y: rect.y + rect.h - 2, w: doorRect.x - rect.x, h: t, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
+      { type: 'rect', x: doorRect.x + doorRect.w, y: rect.y + rect.h - 2, w: rect.x + rect.w - doorRect.x - doorRect.w, h: t, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
     );
   } else if (side === 'e') {
     room.obstacles.push(
-      { type: 'rect', x: rect.x, y: rect.y - t, w: rect.w, h: t, style: 'boundary', solidWall: true },
-      { type: 'rect', x: rect.x, y: rect.y + rect.h, w: rect.w, h: t, style: 'boundary', solidWall: true },
-      { type: 'rect', x: rect.x - 2, y: rect.y, w: t, h: doorRect.y - rect.y, style: 'boundary', solidWall: true },
-      { type: 'rect', x: rect.x - 2, y: doorRect.y + doorRect.h, w: t, h: rect.y + rect.h - doorRect.y - doorRect.h, style: 'boundary', solidWall: true },
+      { type: 'rect', x: rect.x, y: rect.y - t, w: rect.w, h: t, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
+      { type: 'rect', x: rect.x, y: rect.y + rect.h, w: rect.w, h: t, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
+      { type: 'rect', x: rect.x - 2, y: rect.y, w: t, h: doorRect.y - rect.y, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
+      { type: 'rect', x: rect.x - 2, y: doorRect.y + doorRect.h, w: t, h: rect.y + rect.h - doorRect.y - doorRect.h, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
     );
   } else {
     room.obstacles.push(
-      { type: 'rect', x: rect.x, y: rect.y - t, w: rect.w, h: t, style: 'boundary', solidWall: true },
-      { type: 'rect', x: rect.x, y: rect.y + rect.h, w: rect.w, h: t, style: 'boundary', solidWall: true },
-      { type: 'rect', x: rect.x + rect.w - t + 2, y: rect.y, w: t, h: doorRect.y - rect.y, style: 'boundary', solidWall: true },
-      { type: 'rect', x: rect.x + rect.w - t + 2, y: doorRect.y + doorRect.h, w: t, h: rect.y + rect.h - doorRect.y - doorRect.h, style: 'boundary', solidWall: true },
+      { type: 'rect', x: rect.x, y: rect.y - t, w: rect.w, h: t, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
+      { type: 'rect', x: rect.x, y: rect.y + rect.h, w: rect.w, h: t, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
+      { type: 'rect', x: rect.x + rect.w - t + 2, y: rect.y, w: t, h: doorRect.y - rect.y, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
+      { type: 'rect', x: rect.x + rect.w - t + 2, y: doorRect.y + doorRect.h, w: t, h: rect.y + rect.h - doorRect.y - doorRect.h, style: 'boundary', solidWall: true, wall: true, ledgeHeight: Infinity },
     );
   }
   room.obstacles.push({
-    type: 'rect', ...doorRect, style: 'door',
+    type: 'rect', ...doorRect, style: 'door', wall: true,
     breakable: true, species: 'annexDoor', hp: SPECIES.annexDoor.hp + room.idx,
   });
 }
@@ -1006,38 +1140,38 @@ function rollDistrictSubtitle(room, rng) {
 
 function seedDistricts(room, rng, px, py, portalX, portalY) {
   const pal = room.biome.pal;
-  const cols = room.w > 4200 ? 5 : 4;
-  const rows = room.h > 3200 ? 5 : 4;
-  const wall = room.wall + 120;
-  // Each neighborhood gets a DISTINCT neon hue, spread around the colour wheel from a
-  // room-random base, so a single sprawl reads as different districts — not one colour.
+  const cols = room.w > 5600 ? 7 : room.w > 4200 ? 6 : 5;
+  const rows = room.h > 4200 ? 6 : room.h > 3200 ? 5 : 4;
+  const wall = room.wall + 118;
+  // Dense, organized neighborhood grid: almost every cell becomes a readable slab,
+  // but these are non-colliding city surfaces rather than random gameplay clutter.
   const baseHue = Math.floor(rng() * 360);
   let id = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (chance(rng, 0.12)) continue;
+      if (chance(rng, 0.04)) continue;
       const cw = (room.w - wall * 2) / cols;
       const ch = (room.h - wall * 2) / rows;
-      const x = wall + c * cw + rand(rng, 24, 76);
-      const y = wall + r * ch + rand(rng, 24, 76);
-      const w = cw * rand(rng, 0.58, 0.86);
-      const h = ch * rand(rng, 0.54, 0.82);
+      const x = wall + c * cw + rand(rng, 14, 46);
+      const y = wall + r * ch + rand(rng, 14, 46);
+      const w = cw * rand(rng, 0.64, 0.90);
+      const h = ch * rand(rng, 0.60, 0.86);
       const cx = x + w / 2, cy = y + h / 2;
-      if (dist(cx, cy, px, py) < 360 || dist(cx, cy, portalX, portalY) < 260) continue;
-      const hue = (baseHue + id * 64) % 360;
+      if (dist(cx, cy, px, py) < 330 || dist(cx, cy, portalX, portalY) < 245) continue;
+      const hue = (baseHue + id * 43 + c * 19 + r * 31) % 360;
       room.districts.push({
         id: id++, x, y, w, h, cx, cy,
         kind: pick(rng, DISTRICT_KIND),
-        color: `hsl(${hue}, 80%, 62%)`,
+        color: `hsl(${hue}, 86%, 64%)`,
         phase: rng() * TAU,
       });
     }
   }
   // functional anchors stay in the biome's own accents (home / exit / plaza = places, not blocks)
   room.districts.push(
-    { id: id++, x: px - 360, y: py - 240, w: 720, h: 480, cx: px, cy: py, kind: 'spawn', color: pal.accent3, phase: rng() * TAU },
-    { id: id++, x: portalX - 340, y: portalY - 220, w: 680, h: 440, cx: portalX, cy: portalY, kind: 'exit', color: pal.accent2, phase: rng() * TAU },
-    { id: id++, x: room.w * 0.5 - 420, y: room.h * 0.47 - 300, w: 840, h: 600, cx: room.w * 0.5, cy: room.h * 0.47, kind: 'plaza', color: pal.accent, phase: rng() * TAU },
+    { id: id++, x: px - 420, y: py - 280, w: 840, h: 560, cx: px, cy: py, kind: 'spawn', color: pal.accent3, phase: rng() * TAU },
+    { id: id++, x: portalX - 390, y: portalY - 250, w: 780, h: 500, cx: portalX, cy: portalY, kind: 'exit', color: pal.accent2, phase: rng() * TAU },
+    { id: id++, x: room.w * 0.5 - 520, y: room.h * 0.47 - 360, w: 1040, h: 720, cx: room.w * 0.5, cy: room.h * 0.47, kind: 'plaza', color: pal.accent, phase: rng() * TAU },
   );
 }
 
@@ -1051,36 +1185,46 @@ function seedFlowLanes(room, rng, px, py, portalX, portalY) {
     width, boost, color, phase: rng() * TAU, kind,
   });
   const mid = {
-    x: clampX(room.w / 2 + rand(rng, -room.w * 0.12, room.w * 0.12)),
-    y: clampY(room.h * rand(rng, 0.43, 0.51)),
+    x: clampX(room.w / 2 + rand(rng, -room.w * 0.10, room.w * 0.10)),
+    y: clampY(room.h * rand(rng, 0.42, 0.52)),
   };
-  const arteryW = room.bossId ? 148 : 136;
-  add(px, py, mid.x, mid.y, arteryW, 365, pal.accent3, 'artery');
-  add(mid.x, mid.y, portalX, portalY + 24, arteryW, 365, pal.accent2, 'artery');
-  // Giant-room city grid: wide non-blocking boost boulevards — readable routes, not collision.
-  const hBands = room.bossId ? [0.34, 0.58] : [0.30, 0.50, 0.70];
+  const arteryW = room.bossId ? 156 : 172;
+  add(px, py, mid.x, mid.y, arteryW, 520, pal.accent3, 'artery');
+  add(mid.x, mid.y, portalX, portalY + 24, arteryW, 520, pal.accent2, 'artery');
+
+  // The city should always have an obvious high-speed grid. These are not walls;
+  // they are readable boost roads that keep the player moving instead of searching.
+  const hBands = room.bossId ? [0.30, 0.52, 0.72] : [0.20, 0.34, 0.50, 0.66, 0.80];
   for (const f of hBands) {
-    const y = clampY(room.h * f + rand(rng, -70, 70));
-    add(wall + rand(rng, 0, 90), y, room.w - wall - rand(rng, 0, 90), y + rand(rng, -85, 85), rand(rng, 92, 130), rand(rng, 280, 345), chance(rng, 0.5) ? pal.accent : pal.accent3);
+    const y = clampY(room.h * f + rand(rng, -58, 58));
+    add(wall + rand(rng, 0, 70), y, room.w - wall - rand(rng, 0, 70), y + rand(rng, -65, 65), rand(rng, 104, 154), rand(rng, 355, 455), chance(rng, 0.5) ? pal.accent : pal.accent3);
   }
-  const vBands = room.bossId ? [0.38, 0.62] : [0.28, 0.50, 0.72];
+  const vBands = room.bossId ? [0.34, 0.52, 0.68] : [0.18, 0.32, 0.50, 0.68, 0.82];
   for (const f of vBands) {
-    const x = clampX(room.w * f + rand(rng, -80, 80));
-    add(x, wall + rand(rng, 0, 90), x + rand(rng, -90, 90), room.h - wall - rand(rng, 0, 90), rand(rng, 82, 118), rand(rng, 250, 320), chance(rng, 0.5) ? pal.accent2 : pal.accent3);
+    const x = clampX(room.w * f + rand(rng, -64, 64));
+    add(x, wall + rand(rng, 0, 70), x + rand(rng, -70, 70), room.h - wall - rand(rng, 0, 70), rand(rng, 98, 146), rand(rng, 335, 430), chance(rng, 0.5) ? pal.accent2 : pal.accent3);
   }
-  const diagonals = room.bossId ? 1 : 2;
+  // Inner loop: gives a fast circuit around the city so the player can always
+  // rejoin speed without turning around or slow-walking across blank space.
+  const lx = room.w * 0.16, rx = room.w * 0.84, ty = room.h * 0.22, by = room.h * 0.78;
+  add(lx, ty, rx, ty + rand(rng, -50, 50), 128, 445, pal.accent2, 'express');
+  add(rx, ty, rx + rand(rng, -50, 50), by, 128, 445, pal.accent3, 'express');
+  add(rx, by, lx, by + rand(rng, -50, 50), 128, 445, pal.accent, 'express');
+  add(lx, by, lx + rand(rng, -50, 50), ty, 128, 445, pal.accent3, 'express');
+
+  const diagonals = room.bossId ? 2 : 4;
   for (let i = 0; i < diagonals; i++) {
     const leftStart = chance(rng, 0.5);
-    add(leftStart ? wall : room.w - wall, rand(rng, room.h * 0.25, room.h * 0.42),
-      leftStart ? room.w - wall : wall, rand(rng, room.h * 0.58, room.h * 0.78),
-      rand(rng, 70, 96), rand(rng, 225, 290), chance(rng, 0.5) ? pal.accent : pal.accent2, 'side');
+    add(leftStart ? wall : room.w - wall, rand(rng, room.h * 0.20, room.h * 0.42),
+      leftStart ? room.w - wall : wall, rand(rng, room.h * 0.58, room.h * 0.82),
+      rand(rng, 86, 118), rand(rng, 330, 430), chance(rng, 0.5) ? pal.accent : pal.accent2, 'side');
   }
 }
 
 // ── City dressing (ported from ChatGPT's Round 2): skyways, neon signs, traffic
 // flecks. All NON-COLLIDING and BAKED into the background — the "well-fleshed world"
-// without any per-frame cost or new collision. Signs render as abstract neon light-
-// glyphs (paintCityDressing), never stamped placeholder words. ──
+// without any per-frame cost or new collision. ──
+const SIGN_WORDS = ['NULL', 'MOON', 'EXIT', 'EAT', 'LIVE', 'HUSH', 'GOD', 'WIRE', 'GRAFT', 'BLOOM', 'NOIR', 'OPEN', 'KILL', 'SAINT'];
 
 function seedCityDressing(room, rng, px, py, portalX, portalY) {
   const pal = room.biome.pal;
@@ -1089,7 +1233,7 @@ function seedCityDressing(room, rng, px, py, portalX, portalY) {
   const byDist = (a, b) => dist(a.cx, a.cy, b.cx, b.cy);
 
   // Elevated transit rails between neighborhoods — depth without stealing pathing.
-  const skyCount = room.bossId ? randi(rng, 3, 5) : randi(rng, view.mobile ? 5 : 7, view.mobile ? 8 : 11);
+  const skyCount = room.bossId ? randi(rng, 5, 8) : randi(rng, view.mobile ? 9 : 16, view.mobile ? 14 : 26);
   for (let i = 0; i < skyCount && districts.length > 1; i++) {
     const a = pick(rng, districts);
     const options = districts.filter(d => d !== a).sort((u, v) => byDist(a, u) - byDist(a, v));
@@ -1103,7 +1247,7 @@ function seedCityDressing(room, rng, px, py, portalX, portalY) {
   }
 
   // Tiny neon signage gives each slab a "place" without becoming cover (district-tinted).
-  const signCount = room.bossId ? randi(rng, 5, 9) : randi(rng, view.mobile ? 16 : 24, view.mobile ? 28 : 42);
+  const signCount = room.bossId ? randi(rng, 9, 16) : randi(rng, view.mobile ? 28 : 46, view.mobile ? 44 : 76);
   for (let i = 0; i < signCount && districts.length; i++) {
     const d = pick(rng, districts);
     const edge = randi(rng, 0, 3), pad = 36;
@@ -1114,11 +1258,12 @@ function seedCityDressing(room, rng, px, py, portalX, portalY) {
       x, y, w: rand(rng, 56, 132), h: rand(rng, 18, 34),
       rot: edge === 1 || edge === 3 ? Math.PI / 2 + rand(rng, -0.08, 0.08) : rand(rng, -0.08, 0.08),
       color: chance(rng, 0.55) ? d.color : chance(rng, 0.5) ? pal.accent : pal.accent2,
+      text: pick(rng, SIGN_WORDS),
     });
   }
 
   // Baked traffic flecks along the boost roads — the metropolis feels inhabited.
-  const trafficCount = room.bossId ? randi(rng, 28, 44) : randi(rng, view.mobile ? 70 : 105, view.mobile ? 105 : 150);
+  const trafficCount = room.bossId ? randi(rng, 52, 86) : randi(rng, view.mobile ? 120 : 190, view.mobile ? 180 : 290);
   for (let i = 0; i < trafficCount && lanes.length; i++) {
     const l = pick(rng, lanes);
     const at = rand(rng, 0.04, 0.96), dx = l.x2 - l.x1, dy = l.y2 - l.y1;
@@ -1132,7 +1277,7 @@ function seedCityDressing(room, rng, px, py, portalX, portalY) {
 }
 
 // obstacles keep clear of the main arteries/boulevards so the boost routes stay open.
-function nearProtectedFlowLane(room, o, margin = 0) {
+function nearProtectedFlowLane(room, o, margin = 0, mode = 'all') {
   if (!room.flowLanes?.length) return false;
   const b = aabb(o);
   const pts = [
@@ -1141,8 +1286,11 @@ function nearProtectedFlowLane(room, o, margin = 0) {
   ];
   const radius = o.type === 'circle' ? o.rad : Math.min(140, Math.hypot(b.w, b.h) * 0.36);
   for (const l of room.flowLanes) {
-    if (l.kind !== 'artery') continue; // keep only the main spawn→portal arteries clear
-    const protect = (l.width || 90) * 0.5 + radius + margin;
+    if (mode === 'tierCore' && !(l.kind === 'artery' || l.kind === 'express')) continue;
+    let laneProtect = l.kind === 'artery' ? 1.0 : l.kind === 'express' ? 0.82 : l.kind === 'boulevard' ? 0.58 : 0.28;
+    if (mode === 'tier' || mode === 'tierCore') laneProtect *= l.kind === 'artery' ? 0.72 : l.kind === 'express' ? 0.58 : 0.18;
+    const protect = (l.width || 90) * 0.5 * laneProtect + radius + margin;
+    if (protect <= 24) continue;
     if (pts.some(([x, y]) => distPointSegment(x, y, l.x1, l.y1, l.x2, l.y2) < protect)) return true;
   }
   return false;

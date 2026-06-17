@@ -51,7 +51,7 @@ function applyRoom(room) {
   p.level = 0;
   p.dashT = 0; p.dashCd = 0;
   p.rail = null; p.air = null; p.airZ = 0; p.ventT = 0; p.flowT = 0;
-  p.brakeT = 0; p._ventCd = 0; p._ventClearReq = false; p._railLatchCd = 0; p.comboHealFx = 0; p.comboTierFx = 0;
+  p.brakeT = 0; p._ventCd = 0; p._railLatchCd = 0; p.comboHealFx = 0; p.comboTierFx = 0;
   state.run.lastComboHealTier = null;
   p._dashStartLevel = null; p._dashHitIds = null;
   p._dashCutPrimed = false; p._dashFrameActive = false; p._lastX = p.x; p._lastY = p.y; p._dashLastX = p.x; p._dashLastY = p.y;
