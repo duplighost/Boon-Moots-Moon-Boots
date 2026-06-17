@@ -11,3 +11,19 @@ export function levelAt(room, x, y) {
   }
   return 0;
 }
+
+// Ground surfaces (Moonless-inspired): non-colliding floor patches that change how the
+// boots feel. Returns the surface kind under a point on a given level, else null.
+//  slick — frictionless chrome/ice: you keep momentum and drift
+//  tar   — sticky sludge: drags you down (a dash glides over it)
+//  charge— boost plate: shoves you along and lifts your top speed
+export function surfaceAt(room, x, y, level = 0) {
+  const surf = room.surfaces;
+  if (!surf || !surf.length) return null;
+  for (const s of surf) {
+    if ((s.level || 0) !== (level || 0)) continue;
+    if (s.rad) { const dx = x - s.x, dy = y - s.y; if (dx * dx + dy * dy <= s.rad * s.rad) return s.kind; }
+    else if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return s.kind;
+  }
+  return null;
+}

@@ -43,8 +43,8 @@ export const WIN_COPY =
   'The throne cracked. The room does not stop. It just stops pretending there was a bottom.';
 
 export const TITLE_TAGLINES = [
-  'One room. It keeps re-dressing itself in every biome the descent ever had, hoping one finally takes. Moots answers.',
-  'The road grins. The boots answer. The room keeps changing the locks anyway.',
+  'Endless neon city. Grind the rails, dash the rooftops, never touch the brakes.',
+  'The road grins. The boots answer. The skyline keeps unrolling ahead of you.',
 ];
 
 export const BOSS_INTRO = {

@@ -8,7 +8,6 @@ import { updateParticles } from './render/particles.js';
 import { initInput, getMove, getAim, tickTouchDash } from './ui/input.js';
 import { updateBehavior } from './systems/notices.js';
 import { ensureBgm, toggleBgm } from './audio/bgm.js';
-import { todaySeed } from './rng.js';
 import {
   initOverlays, showTitle, showCodex, showPause, wirePauseButtons, wireSfxButton,
   wireBgmButton, setMenu, hideOverlays, updateHud, setSfxLabels,
@@ -43,13 +42,12 @@ export function boot() {
   initOverlays();
 
   const menu = {
-    start: (oath) => { ensureAudio(); ensureBgm(); startRun(Date.now(), { oath }); updateHud(); },
-    daily: (oath) => { ensureAudio(); ensureBgm(); startRun(todaySeed(), { daily: true, oath }); updateHud(); },
+    start: () => { ensureAudio(); ensureBgm(); startRun(); updateHud(); },
     restart: () => { startRun(); updateHud(); },
   };
   setMenu(menu);
   const actions = {
-    start: () => menu.start('none'),
+    start: () => menu.start(),
     pause: togglePause,
     codex: () => { if (state.mode === 'title' || state.mode === 'dead') showCodex(); },
     toggleSfx: () => { toggleSfx(); setSfxLabels(); },

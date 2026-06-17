@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>One Room No Moon</title>
-<meta name="description" content="One room. It keeps re-dressing itself in every biome the descent ever had. Moots answers.">
+<title>Rocket Shoes</title>
+<meta name="description" content="Rocket Shoes — grind the rails, dash the rooftops of an endless neon city, never touch the brakes.">
 <link rel="icon" href="./assets/favicon.svg">
 <style>
 :root{
@@ -103,10 +103,37 @@ button:hover{border-color:rgba(255,255,255,.22)}
 .codexCard p{margin:3px 0 0; color:var(--dim)}
 .codexCard .kills{color:#ffd36e; font-size:11px}
 .noticeList{font-size:12.5px; color:var(--dim); line-height:1.7; max-height:160px; overflow:auto}
-.oathRow{display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin-bottom:14px}
-.oathBtn{font-size:12px; padding:8px 12px; min-height:44px; border-radius:10px; color:var(--dim)}
-.oathBtn.sel{color:var(--ink); border-color:#bfa3ff; box-shadow:0 0 12px rgba(190,160,255,.25)}
 .miniBtn{min-height:44px; min-width:44px}
+.bigBtn{transition:transform .12s ease, box-shadow .2s ease}
+
+/* ── Title screen: hero wordmark floating over the live neon-city backdrop ── */
+.modalHost.titleScreen{background:rgba(3,5,11,.30)}
+.modalHost.titleScreen .modal{
+  padding-top:38px;
+  border:1px solid rgba(255,255,255,.12);
+  background:linear-gradient(180deg,rgba(10,14,26,.62),rgba(8,10,20,.46));
+  box-shadow:0 30px 90px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.modalHost.titleScreen h1{
+  margin:0 0 6px; font-weight:900; text-transform:uppercase;
+  font-size:clamp(46px,12.5vw,104px); line-height:.86; letter-spacing:-.055em;
+  background:linear-gradient(105deg,#7dfdff 0%,#eaffff 26%,#f3dcff 52%,#ff9bf5 74%,#ffd36e 100%);
+  background-size:220% 100%; -webkit-background-clip:text; background-clip:text; color:transparent;
+  filter:drop-shadow(0 0 26px rgba(125,253,255,.45)) drop-shadow(0 0 52px rgba(243,220,255,.28));
+  animation:titleSheen 5.5s linear infinite;
+}
+@keyframes titleSheen{from{background-position:0 0}to{background-position:220% 0}}
+.modalHost.titleScreen p{font-size:14.5px; max-width:34ch; margin:2px auto 18px; color:#c2d4f2}
+.modalHost.titleScreen .bigBtn:first-child{
+  min-width:210px; font-size:17px; padding:15px 26px; letter-spacing:.02em;
+  border-color:rgba(125,253,255,.55);
+  background:linear-gradient(180deg,rgba(125,253,255,.24),rgba(243,220,255,.10));
+  box-shadow:0 0 22px rgba(125,253,255,.32), inset 0 1px 0 rgba(255,255,255,.18);
+}
+.modalHost.titleScreen .bigBtn:first-child:hover{
+  border-color:rgba(234,255,255,.9); transform:translateY(-2px);
+  box-shadow:0 0 36px rgba(125,253,255,.55), inset 0 1px 0 rgba(255,255,255,.26);
+}
 </style>
 </head>
 <body>
@@ -114,7 +141,7 @@ button:hover{border-color:rgba(255,255,255,.22)}
 
 <div id="hud">
   <div class="chip panel">
-    <span id="zone">One Room No Moon</span>
+    <span id="zone">Rocket Shoes</span>
     <span id="roomNo">round 0</span>
     <span id="hp">♥♥♥♥♥♥</span>
     <span id="pulseWrap"><span id="pulseFill"></span></span>

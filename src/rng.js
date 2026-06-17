@@ -67,8 +67,3 @@ export class Bag {
     return this.items[Math.floor(rng() * this.items.length)];
   }
 }
-
-export function todaySeed() {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
-}

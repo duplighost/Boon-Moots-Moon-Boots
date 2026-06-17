@@ -69,6 +69,7 @@ export function rollRoom(run, round) {
     round, idx: depthIdx(round), stage: dangerStage(round, run.overdrive),
     biome, layoutId, recipeId, mutatorId: mutator?.id || null, mutator, eventId: null, bossId,
     floorplanId: 'none', openings: [], sanctum: null, tiers: [], vents: [], setpieces: [],
+    surfaces: [], escapeRail: null,
     districts: [], flowLanes: [], skyRails: [], skyways: [], signs: [], traffic: [], districtName: '', districtSubtitle: '', backgroundScale: 1,
     // city-scale sprawl — give the player a LOT of ground to dash across. Density
     // (cover, ambient, enemy budget) scales with area below so the space stays full.
@@ -166,6 +167,8 @@ export function rollRoom(run, round) {
   if (room.tiers.length) seedVents(room, rng, px, py, portalX, portalY);
   if (room.tiers.length) seedSkyRails(room, rng);
   if (!bossId && room.tiers.length) seedHighGroundRewards(room, rng);
+  seedSurfaces(room, rng, px, py, portalX, portalY);
+  seedDistrictLandmarks(room, rng, px, py, portalX, portalY);
   seedLandmarkProps(room, rng, px, py, portalX, portalY);
   if (!bossId) seedRoomShop(room, rng, run, px, py, portalX, portalY);
 
@@ -211,12 +214,12 @@ export function rollRoom(run, round) {
   }
 
   // ── breakable conversion (species weights with biome bumps) ──
-  const breakN = randi(rng, 1, 3) + (mutator?.breakBonus || 0) + (run.oath === 'hunger' ? 1 : 0);
+  const breakN = randi(rng, 1, 3) + (mutator?.breakBonus || 0);
   const candidates = room.obstacles.filter(o => !o.breakable && !o.landmark && o.type === 'circle' && o.rad < 72);
   for (let i = 0; i < breakN && candidates.length; i++) {
     const o = candidates.splice(Math.floor(rng() * candidates.length), 1)[0];
     o.breakable = true;
-    o.species = rollSpecies(rng, biome, room.idx, mutator?.idolBump || run.oath === 'hunger');
+    o.species = rollSpecies(rng, biome, room.idx, mutator?.idolBump);
     o.hp = SPECIES[o.species].hp + room.idx * 0.8;
   }
 
@@ -225,7 +228,7 @@ export function rollRoom(run, round) {
 
   // ── sealed annex (skip when a floorplan already partitions the room) ──
   const compass = stacks(run.player, 'cacheCompass');
-  const annexChance = ANNEX.CHANCE + compass * 0.12 + (run.oath === 'blind' ? 0.15 : 0);
+  const annexChance = ANNEX.CHANCE + compass * 0.12;
   if (!bossId && !partitioned && chance(rng, annexChance)) buildAnnex(room, rng);
 
   // ── axis 3: hazard kit ──
@@ -541,7 +544,7 @@ function seedVerticality(room, rng, px, py, portalX, portalY, partitioned) {
   // instead of scattered.
   const wantsTier = chance(rng, partitioned ? 0.94 : 1.0);
   if (!wantsTier) return 0;
-  const cap = room.bossId ? (view.mobile ? 4 : 7) : view.mobile ? (partitioned ? 5 : 6) : (partitioned ? 8 : 12);
+  const cap = room.bossId ? (view.mobile ? 4 : 7) : view.mobile ? (partitioned ? 5 : 7) : (partitioned ? 10 : 14);
   let made = seedRooftopGrid(room, rng, px, py, portalX, portalY, partitioned, cap);
   const target = room.bossId
     ? clamp(view.mobile ? 3 : 5, 3, cap)
@@ -619,8 +622,10 @@ function seedRooftopGrid(room, rng, px, py, portalX, portalY, partitioned, cap) 
   for (const entry of order) {
     if (room.tiers.length >= cap) break;
     const d = entry.d;
-    const tw = clamp(d.w * rand(rng, 0.58, 0.78), view.mobile ? 300 : 360, view.mobile ? 620 : 860);
-    const th = clamp(d.h * rand(rng, 0.50, 0.70), view.mobile ? 220 : 260, view.mobile ? 500 : 660);
+    // Bigger rooftops: real standing room up top so the second layer is a place to fight
+    // and flow across, not just landing pads. (Brought over from the rooftop-grid fork.)
+    const tw = clamp(d.w * rand(rng, 0.74, 0.94), view.mobile ? 320 : 400, view.mobile ? 780 : 1160);
+    const th = clamp(d.h * rand(rng, 0.64, 0.86), view.mobile ? 240 : 300, view.mobile ? 620 : 900);
     const rect = {
       x: d.cx - tw / 2 + rand(rng, -d.w * 0.06, d.w * 0.06),
       y: d.cy - th / 2 + rand(rng, -d.h * 0.06, d.h * 0.06),
@@ -651,15 +656,15 @@ function maybeTier(room, rng, px, py, portalX, portalY, opts = {}) {
 
 function tryPlaceTierRect(room, rng, px, py, portalX, portalY, rawRect, opts = {}) {
   const T = 26;
-  const tw = clamp(rawRect.w, view.mobile ? 270 : 330, view.mobile ? 700 : 940);
-  const th = clamp(rawRect.h, view.mobile ? 200 : 240, view.mobile ? 560 : 720);
+  const tw = clamp(rawRect.w, view.mobile ? 270 : 330, view.mobile ? 820 : 1180);
+  const th = clamp(rawRect.h, view.mobile ? 200 : 240, view.mobile ? 700 : 900);
   const tx = clamp(rawRect.x, room.wall + 92, room.w - room.wall - 92 - tw);
   const ty = clamp(rawRect.y, room.wall + 92, room.h - room.wall - 120 - th);
   const rect = { x: tx, y: ty, w: tw, h: th };
   const pad = opts.partitioned ? 110 : 150;
   const hit = (qx, qy, extra = 0) => qx > tx - pad - extra && qx < tx + tw + pad + extra && qy > ty - pad - extra && qy < ty + th + pad + extra;
   if (hit(px, py, 80) || hit(portalX, portalY, 70)) return false;
-  if (room.tiers.some(t => rectOverlap(rect, t, opts.ordered ? 92 : 120))) return false;
+  if (room.tiers.some(t => rectOverlap(rect, t, opts.ordered ? 60 : 104))) return false;
   if (nearProtectedFlowLane(room, { type: 'rect', x: tx, y: ty, w: tw, h: th }, opts.ordered ? -86 : -48, opts.ordered ? 'tierCore' : 'tier')) return false;
 
   // ramp on the bottom edge: because spawn is low in the room, this keeps roof access
@@ -932,6 +937,98 @@ function placeMysteryVault(room, rng, px, py, portalX, portalY) {
 
 
 
+// Ground surfaces (Moonless-inspired floor variety): non-colliding patches that change
+// how the boots feel — slick chrome you drift across, sticky tar that drags (dash over
+// it), and charge plates that shove you along. Read by player.js via levels.surfaceAt.
+function seedSurfaces(room, rng, px, py, portalX, portalY) {
+  room.surfaces = [];
+  const pal = room.biome.pal;
+  const scale = roomAreaScale(room);
+  const onTier = (x, y, pad = 0) => (room.tiers || []).some(t => x > t.x - pad && x < t.x + t.w + pad && y > t.y - pad && y < t.y + t.h + pad);
+  const clearSpot = (x, y, r) => dist(x, y, px, py) > 300 + r && dist(x, y, portalX, portalY) > 240 + r;
+
+  const addGround = (kind, rad, color, tries = 26) => {
+    for (let i = 0; i < tries; i++) {
+      const x = rand(rng, room.wall + 180, room.w - room.wall - 180);
+      const y = rand(rng, room.wall + 170, room.h - room.wall - 190);
+      if (!clearSpot(x, y, rad) || onTier(x, y, 40)) continue;            // ground streets only
+      if (room.surfaces.some(s => dist(x, y, s.x + (s.w || 0) / 2, s.y + (s.h || 0) / 2) < rad + (s.rad || Math.max(s.w, s.h) / 2) + 60)) continue;
+      room.surfaces.push({ kind, x, y, rad, level: 0, color, phase: rng() * TAU });
+      return true;
+    }
+    return false;
+  };
+
+  // charge boulevards: a couple of wide boost strips laid ALONG flow lanes so the city's
+  // momentum highways have a physical "kick" surface, not just a tint.
+  const lanes = (room.flowLanes || []).filter(l => l.kind !== 'artery');
+  const nStrips = clamp(1 + Math.round(scale * 0.5), 1, room.bossId ? 2 : 4);
+  for (let i = 0; i < nStrips && lanes.length; i++) {
+    const l = pick(rng, lanes);
+    const t0 = rand(rng, 0.12, 0.4), t1 = rand(rng, 0.6, 0.88);
+    const ax = l.x1 + (l.x2 - l.x1) * t0, ay = l.y1 + (l.y2 - l.y1) * t0;
+    const bx = l.x1 + (l.x2 - l.x1) * t1, by = l.y1 + (l.y2 - l.y1) * t1;
+    const x = Math.min(ax, bx), y = Math.min(ay, by);
+    const w = Math.max(120, Math.abs(bx - ax)), h = Math.max(120, Math.abs(by - ay));
+    const cx = x + w / 2, cy = y + h / 2;
+    if (!clearSpot(cx, cy, Math.max(w, h) / 2) || onTier(cx, cy, 0)) continue;
+    room.surfaces.push({ kind: 'charge', x, y, w, h, level: 0, color: pal.accent3, phase: rng() * TAU });
+  }
+  if (room.bossId) return;
+
+  // slick plazas (drift), a couple of charge pads, and a sticky tar pool or two.
+  for (let i = 0, n = randi(rng, 1, 2) + (scale > 4 ? 1 : 0); i < n; i++) addGround('slick', rand(rng, 150, 230), pal.accent2);
+  for (let i = 0, n = randi(rng, 1, 2); i < n; i++) addGround('charge', rand(rng, 110, 165), pal.accent3);
+  for (let i = 0, n = randi(rng, 1, 2); i < n; i++) addGround('tar', rand(rng, 110, 170), mixHexA(pal.bad, pal.bg, 0.5));
+
+  // a slick or charge cap on a couple of rooftops, so the upper layer has its own feel.
+  const roofs = [...(room.tiers || [])].sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, view.mobile ? 1 : 3);
+  for (const t of roofs) {
+    if (chance(rng, 0.5)) continue;
+    const kind = chance(rng, 0.6) ? 'slick' : 'charge';
+    room.surfaces.push({
+      kind, x: t.x + t.w * 0.5, y: t.y + t.h * 0.52, rad: Math.min(t.w, t.h) * rand(rng, 0.30, 0.42),
+      level: t.height || 1, color: kind === 'slick' ? pal.accent2 : pal.accent3, phase: rng() * TAU,
+    });
+  }
+}
+
+// small hex-blend helper (string '#rrggbb' a/b at t) for surface tints
+function mixHexA(a, b, t) {
+  const pa = parseInt(a.replace('#', ''), 16), pb = parseInt(b.replace('#', ''), 16);
+  const r = Math.round(((pa >> 16) & 255) + (((pb >> 16) & 255) - ((pa >> 16) & 255)) * t);
+  const g = Math.round(((pa >> 8) & 255) + (((pb >> 8) & 255) - ((pa >> 8) & 255)) * t);
+  const bl = Math.round((pa & 255) + ((pb & 255) - (pa & 255)) * t);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1)}`;
+}
+
+// Grand district landmarks (Moonless-inspired centerpieces): a reflecting moon-pool you
+// slide across, a backseat observatory dome, an arcade spire. Bigger and rarer than the
+// ambient props — one or two per city so each map has a recognizable place in it.
+function seedDistrictLandmarks(room, rng, px, py, portalX, portalY) {
+  if (room.bossId) return;
+  const pal = room.biome.pal;
+  const onTier = (x, y, pad = 0) => (room.tiers || []).some(t => x > t.x - pad && x < t.x + t.w + pad && y > t.y - pad && y < t.y + t.h + pad);
+  const kinds = ['reflectPool', 'observatory', 'arcadeSpire'];
+  const target = randi(rng, 1, view.mobile ? 1 : 2);
+  for (let i = 0; i < target; i++) {
+    for (let tries = 0; tries < 44; tries++) {
+      const x = rand(rng, room.w * 0.18, room.w * 0.82);
+      const y = rand(rng, room.h * 0.20, room.h * 0.70);
+      const r = rand(rng, 98, 150);
+      if (dist(x, y, px, py) < 400 || dist(x, y, portalX, portalY) < 330) continue;
+      if (onTier(x, y, 50)) continue;                                     // sit in an open street
+      if ((room.setpieces || []).some(s => dist(x, y, s.x, s.y) < 340)) continue;
+      const kind = kinds[(i + randi(rng, 0, kinds.length - 1)) % kinds.length];
+      room.setpieces.push({ kind, x, y, r, level: 0, grand: true, phase: rng() * TAU, color: chance(rng, 0.5) ? pal.accent2 : pal.accent3 });
+      room.landmarks.push({ kind, x, y });
+      // the moon-pool reads as water you skate over — give it a slick surface to match
+      if (kind === 'reflectPool') room.surfaces.push({ kind: 'slick', x, y, rad: r * 0.96, level: 0, color: pal.accent2, phase: rng() * TAU });
+      break;
+    }
+  }
+}
+
 function seedLandmarkProps(room, rng, px, py, portalX, portalY) {
   const kinds = ['holoTower', 'moonPool', 'signalPylon', 'marketArch', 'ghostBillboard', 'bridgeMast', 'liftBeacon'];
   const target = room.bossId ? randi(rng, 4, 7) : randi(rng, view.mobile ? 9 : 16, view.mobile ? 14 : 26);
@@ -1083,6 +1180,9 @@ function buildAnnex(room, rng) {
     doorRect = { x: w + depth - 16, y: y + span * 0.3, w: 18, h: span * 0.4 };
     cx = w + depth * 0.45; cy = y + span / 2;
   }
+  // Keep the sealed vault off the rooftop blocks so the door stays clearly approachable
+  // from the street and the layout reads tidy.
+  if (room.tiers?.some(t => rectOverlap(rect, t, 40))) return false;
   const ambush = chance(rng, ANNEX.AMBUSH);
   room.annex = {
     side, rect, doorRect, opened: false, cx, cy,

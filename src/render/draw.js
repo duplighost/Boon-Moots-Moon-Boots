@@ -45,6 +45,7 @@ export function drawFrame() {
   else { ctx.fillStyle = pal.floor; ctx.fillRect(0, 0, room.w, room.h); }
   drawFloorMotion(room, pal);    // the living, moving floor — biome-specific currents
   drawFlowLanes(room, pal, p);   // animated neon boost boulevards over the baked floor
+  drawSurfaces(room, pal, 0);    // ground surfaces: slick / tar / charge patches
 
   // wall frame
   ctx.strokeStyle = pal.accent3; ctx.globalAlpha = 0.85; ctx.lineWidth = 5;
@@ -57,7 +58,9 @@ export function drawFrame() {
 
   drawEdgeRail(room, pal, p);
   drawTiers(room, pal);
+  drawSurfaces(room, pal, 1);    // rooftop surfaces, drawn onto the platform tops
   drawSkyRails(room, pal, p);
+  drawEscapeRail(room, pal, p);
   drawAnnexSeals(room, pal);
   drawSetpieces(room, pal);
   drawVents(room, pal, p);
@@ -140,7 +143,7 @@ export function drawFrame() {
 
   drawEclipse(room); // False Moon's eclipse darkens the field around the moon
   if (state.mode === 'play') drawSpeedStreaks(p); // anime speed-lines at dash/flow velocity
-  if (p && state.mode === 'play' && state.run?.oath !== 'blind') drawDangerTriangles(room, p);
+  if (p && state.mode === 'play') drawDangerTriangles(room, p);
   if (room.portal) drawPortalArrow(room);
   drawBossBar(room);
   drawBossIntro(room);
@@ -269,6 +272,110 @@ function drawSkyRails(room, pal, p) {
   ctx.restore();
 }
 
+// The express escape rail: an unmissable white-hot grind line from where you cleared
+// the room to the portal, with chevrons streaming toward the exit so the way home reads
+// instantly. Drawn over everything; lifts with the player's level so it's always visible.
+function drawEscapeRail(room, pal, p) {
+  const r = room.escapeRail;
+  if (!r || r.used) return;
+  const t = room.time || performance.now() / 1000;
+  const lift = (r.level || 0) * TIER_LIFT;
+  const riding = p?.rail?.active && p.rail.kind === 'escape';
+  const dx = r.x2 - r.x1, dy = r.y2 - r.y1, len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+  ctx.save();
+  ctx.translate(0, -lift);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.globalCompositeOperation = 'lighter';
+  // fat glow body
+  ctx.globalAlpha = riding ? 0.5 : 0.34 + Math.sin(t * 5) * 0.06;
+  ctx.strokeStyle = r.color; ctx.lineWidth = riding ? 26 : 20;
+  ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke();
+  // bright core
+  ctx.globalAlpha = 0.95; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = riding ? 6 : 4.5;
+  ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke();
+  // chevrons streaming toward the portal
+  ctx.globalAlpha = 0.92; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.4;
+  const spacing = 92, scroll = (t * 760) % spacing, cs = 15;
+  for (let s = -spacing; s < len + spacing; s += spacing) {
+    const at = s + scroll; if (at < 0 || at > len) continue;
+    const cx = r.x1 + ux * at, cy = r.y1 + uy * at;
+    ctx.beginPath();
+    ctx.moveTo(cx - ux * cs + nx * cs, cy - uy * cs + ny * cs);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx - ux * cs - nx * cs, cy - uy * cs - ny * cs);
+    ctx.stroke();
+  }
+  // launch pad at the player end so "dash here" is obvious
+  ctx.globalAlpha = 0.6 + Math.sin(t * 7) * 0.2;
+  ctx.fillStyle = hexA(r.color, 0.4); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(r.x1, r.y1, 18 + Math.sin(t * 6) * 3, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+// Ground surfaces — slick chrome (drift), sticky tar (drag), charge plates (boost).
+// Animated + viewport-culled; level 0 sits on the floor, level 1 onto a rooftop.
+function drawSurfaces(room, pal, level) {
+  const surfs = room.surfaces;
+  // NOTE: surfaces change movement (player.js), so they must stay VISIBLE even under
+  // reduced-motion — we keep the static fill+rim and only drop the animated flourishes.
+  if (!surfs || !surfs.length) return;
+  const rm = reduced();
+  const t = room.time || performance.now() / 1000;
+  const vis = visibleRect(120);
+  ctx.save();
+  ctx.translate(0, -level * TIER_LIFT);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const s of surfs) {
+    if ((s.level || 0) !== level) continue;
+    const cx = s.rad ? s.x : s.x + s.w / 2, cy = s.rad ? s.y : s.y + s.h / 2;
+    const rr = s.rad || Math.max(s.w, s.h) / 2;
+    if (cx + rr < vis.l || cx - rr > vis.r || cy + rr < vis.t || cy - rr > vis.b) continue;
+    const path = () => { if (s.rad) { ctx.beginPath(); ctx.arc(s.x, s.y, s.rad, 0, TAU); } else roundRectPath(ctx, s.x, s.y, s.w, s.h, 20); };
+    if (s.kind === 'slick') {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 0.14; ctx.fillStyle = s.color; path(); ctx.fill();
+      ctx.globalAlpha = 0.55; ctx.strokeStyle = hexA('#eaffff', 0.7); ctx.lineWidth = 2; path(); ctx.stroke();
+      if (!rm) {
+        ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+        const ph = (t * 0.6 + (s.phase || 0)) % 1;
+        for (let i = 0; i < 2; i++) {
+          const o = (ph + i * 0.5) % 1, lx = cx - rr * 0.7 + o * rr * 1.4;
+          ctx.globalAlpha = 0.34 * Math.sin(o * Math.PI);
+          ctx.beginPath(); ctx.moveTo(lx, cy - rr * 0.5); ctx.lineTo(lx - rr * 0.25, cy + rr * 0.5); ctx.stroke();
+        }
+      }
+    } else if (s.kind === 'tar') {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 0.6; ctx.fillStyle = s.color; path(); ctx.fill();
+      ctx.globalAlpha = 0.5; ctx.strokeStyle = hexA(pal.bad, 0.5); ctx.lineWidth = 2.4;
+      ctx.setLineDash([10, 9]); ctx.lineDashOffset = rm ? 0 : -t * 30; path(); ctx.stroke(); ctx.setLineDash([]);
+      if (!rm) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        for (let i = 0; i < 5; i++) {
+          const a = t * 0.5 + i * 1.7 + (s.phase || 0);
+          const bx = cx + Math.cos(a) * rr * 0.45, by = cy + Math.sin(a * 0.8) * rr * 0.38;
+          ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.arc(bx, by, 4 + (Math.sin(t * 2 + i) * 0.5 + 0.5) * 6, 0, TAU); ctx.fill();
+        }
+      }
+    } else { // charge plate
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.12 + (rm ? 0 : Math.sin(t * 4 + (s.phase || 0)) * 0.04); ctx.fillStyle = s.color; path(); ctx.fill();
+      ctx.globalAlpha = 0.55; ctx.strokeStyle = s.color; ctx.lineWidth = 2.4; path(); ctx.stroke();
+      ctx.globalAlpha = 0.7; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.6;
+      const horiz = s.rad ? true : s.w >= s.h;
+      const step = 46, scroll = rm ? 0 : (t * 240) % step, k = 9;
+      for (let d = -step; d < rr * 2 + step; d += step) {
+        const at = d + scroll - rr;
+        if (horiz) { ctx.beginPath(); ctx.moveTo(cx + at - k, cy - k); ctx.lineTo(cx + at, cy); ctx.lineTo(cx + at - k, cy + k); ctx.stroke(); }
+        else { ctx.beginPath(); ctx.moveTo(cx - k, cy + at - k); ctx.lineTo(cx, cy + at); ctx.lineTo(cx + k, cy + at - k); ctx.stroke(); }
+      }
+    }
+  }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
+
 function drawAnnexSeals(room, pal) {
   const a = room.annex;
   if (!a || a.opened) return;
@@ -361,7 +468,33 @@ function drawSetpieces(room, pal) {
     ctx.globalAlpha = 0.70;
     ctx.strokeStyle = col; ctx.fillStyle = hexA(col, 0.16); ctx.lineWidth = 2.2;
     const pulse = 1 + Math.sin(t * 2 + s.phase) * 0.08;
-    if (s.kind === 'holoTower' || s.kind === 'liftBeacon') {
+    if (s.kind === 'reflectPool') {
+      // Missing-Moon Lake (Moonless): a glowing reflecting pool with ripple rings + a
+      // shimmering moon highlight. (A slick surface lives under it — you slide across.)
+      ctx.globalAlpha = 0.5; ctx.fillStyle = hexA(col, 0.14);
+      ctx.beginPath(); ctx.ellipse(0, 0, s.r, s.r * 0.6, 0, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 0.6; ctx.strokeStyle = hexA('#eaffff', 0.55); ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(0, 0, s.r, s.r * 0.6, 0, 0, TAU); ctx.stroke();
+      for (let i = 0; i < 3; i++) { const rr = (t * 0.3 + i / 3 + s.phase) % 1; ctx.globalAlpha = 0.4 * (1 - rr); ctx.beginPath(); ctx.ellipse(0, 0, s.r * rr, s.r * 0.6 * rr, 0, 0, TAU); ctx.stroke(); }
+      ctx.globalAlpha = 0.45 + Math.sin(t * 1.5 + s.phase) * 0.15; ctx.fillStyle = '#eaffff';
+      ctx.beginPath(); ctx.ellipse(0, -s.r * 0.06, s.r * 0.26, s.r * 0.16, 0, 0, TAU); ctx.fill();
+    } else if (s.kind === 'observatory') {
+      // Backseat Observatory (Moonless): a dome with a rotating telescope slit + orbits.
+      ctx.globalAlpha = 0.55; ctx.fillStyle = hexA(col, 0.16); ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.arc(0, 6, s.r * 0.62, Math.PI, 0); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-s.r * 0.66, 6); ctx.lineTo(s.r * 0.66, 6); ctx.stroke();
+      ctx.save(); ctx.rotate(Math.sin(t * 0.4) * 0.6); ctx.globalAlpha = 0.75; ctx.strokeStyle = '#fff7ff'; ctx.lineWidth = 3.4;
+      ctx.beginPath(); ctx.moveTo(0, 2); ctx.lineTo(0, -s.r * 0.66); ctx.stroke(); ctx.restore();
+      for (let i = 0; i < 2; i++) { ctx.globalAlpha = 0.32; ctx.beginPath(); ctx.ellipse(0, -s.r * 0.18, s.r * (0.72 + i * 0.22), s.r * (0.26 + i * 0.1), Math.sin(t * 0.5 + i) * 0.25, 0, TAU); ctx.stroke(); }
+    } else if (s.kind === 'arcadeSpire') {
+      // October Arcade (Moonless): a tall neon tower with a scrolling marquee + beacon.
+      ctx.globalAlpha = 0.5; ctx.fillStyle = hexA(col, 0.14); ctx.lineWidth = 2.2;
+      roundRectPath(ctx, -s.r * 0.3, -s.r * 1.3, s.r * 0.6, s.r * 1.5, 9); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#ffffff';
+      for (let i = 0; i < 6; i++) { const yy = -s.r * 1.22 + ((i * 0.18 + t * 0.4) % 1) * s.r * 1.34; ctx.globalAlpha = 0.5; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(-s.r * 0.22, yy); ctx.lineTo(s.r * 0.22, yy); ctx.stroke(); }
+      ctx.globalAlpha = 0.6 + Math.sin(t * 5) * 0.3; ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(0, -s.r * 1.34, 5 * pulse, 0, TAU); ctx.fill();
+    } else if (s.kind === 'holoTower' || s.kind === 'liftBeacon') {
       ctx.beginPath(); ctx.ellipse(0, 18, s.r * 0.78, s.r * 0.22, 0, 0, TAU); ctx.fill(); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(-s.r * 0.42, 14); ctx.lineTo(0, -s.r * 1.35 * pulse); ctx.lineTo(s.r * 0.42, 14); ctx.closePath(); ctx.stroke();
       ctx.globalAlpha = 0.32; ctx.beginPath(); ctx.moveTo(0, -s.r * 1.2); ctx.lineTo(0, -s.r * 2.2); ctx.stroke();
@@ -701,7 +834,23 @@ function drawPortal(room, pal) {
   const po = room.portal;
   const t = performance.now() / 1000;
   const pulse = 0.5 + 0.5 * Math.sin(t * 3);
-  const r = po.r + Math.sin(t * 5) * 3;
+  // punch-open: the portal springs to full size with a little overshoot the instant it opens
+  const op = clamp(po.open ?? 1, 0, 1);
+  const ease = op < 1 ? 1 - Math.pow(1 - op, 3) : 1;
+  const overshoot = 1 + Math.sin(op * Math.PI) * 0.18 * (op < 1 ? 1 : 0);
+  const r = (po.r + Math.sin(t * 5) * 3) * ease * overshoot;
+
+  // a tall column of light so the exit is screaming "HERE" from across the map
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const beam = ctx.createLinearGradient(po.x, po.y - r * 8, po.x, po.y + r * 2);
+  beam.addColorStop(0, 'rgba(0,0,0,0)');
+  beam.addColorStop(0.7, hexA(pal.accent2, 0.16 * ease));
+  beam.addColorStop(1, hexA('#ffffff', 0.30 * ease));
+  ctx.fillStyle = beam;
+  const bw = r * (0.9 + Math.sin(t * 4) * 0.06);
+  ctx.fillRect(po.x - bw, po.y - r * 8, bw * 2, r * 8);
+  ctx.restore();
 
   // tight bright aura (no muddy blur — keep the glow contained)
   const aura = ctx.createRadialGradient(po.x, po.y, r * 0.15, po.x, po.y, r * 1.5);
@@ -840,25 +989,43 @@ function drawBullets(room) {
   }
 }
 
+// Edge markers for every off-screen enemy: on an endless map you should never wonder
+// WHERE the fight is. Each off-screen threat pins a triangle to the screen edge; nearer
+// threats read brighter/bigger, telegraphing attacks flash red, and a small count badge
+// appears if more are off-screen than we draw.
 function drawDangerTriangles(room, p) {
-  const margin = 28, triSize = view.mobile ? 17 : 12; // bigger threat markers on phones
-  let count = 0;
+  const margin = 28, triSize = view.mobile ? 18 : 13;
+  const offs = [];
   for (const e of room.enemies) {
-    if (e.hp <= 0 || count >= 8) break;
+    if (e.hp <= 0) continue;
     const sx = (e.x - cam.x) * view.scale, sy = (e.y - cam.y) * view.scale;
     if (sx > margin && sx < view.W - margin && sy > margin && sy < view.H - margin) continue;
-    count++;
+    offs.push({ e, sx, sy, d: Math.hypot(e.x - p.x, e.y - p.y) });
+  }
+  offs.sort((a, b) => a.d - b.d); // nearest threats first
+  const shown = Math.min(offs.length, 14);
+  for (let i = 0; i < shown; i++) {
+    const { e, sx, sy, d } = offs[i];
     const cx = clamp(sx, margin, view.W - margin), cy = clamp(sy, margin, view.H - margin);
     const angle = Math.atan2(sy - view.H / 2, sx - view.W / 2);
     const isTele = (e.type === 'charger' && e.state === 'windup') || (e.type === 'sniper' && e.aimT > 0);
-    const s = isTele ? triSize * 1.6 : triSize;
+    const near = clamp(1 - d / 2400, 0, 1);          // closer → bolder marker
+    const s = (isTele ? triSize * 1.6 : triSize) * (0.82 + near * 0.5);
     ctx.save();
     ctx.translate(cx, cy); ctx.rotate(angle);
-    ctx.globalAlpha = isTele ? 0.95 : 0.55;
+    ctx.globalAlpha = isTele ? 0.96 : 0.42 + near * 0.42;
     ctx.fillStyle = isTele ? '#ff3333' : e.color;
+    if (isTele || near > 0.55) { ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 8; }
     ctx.beginPath();
     ctx.moveTo(s, 0); ctx.lineTo(-s * 0.5, -s * 0.6); ctx.lineTo(-s * 0.5, s * 0.6);
     ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  if (offs.length > shown) {
+    ctx.save();
+    ctx.globalAlpha = 0.8; ctx.fillStyle = '#ffd36e';
+    ctx.font = '900 13px Inter, system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`+${offs.length - shown} more`, view.W - margin, view.H - margin);
     ctx.restore();
   }
 }
@@ -1065,25 +1232,87 @@ function drawTransition() {
 }
 
 // ── title backdrop ──────────────────────────────────────────────────────────
-const titleMotes = [];
+// Title backdrop: a living neon skyline — parallax buildings with twinkling windows,
+// scrolling grind-rails across the sky, and the occasional rocket-boot comet streak.
+const titleBg = { inited: false, motes: [], layers: [], rails: [], comets: [] };
 function drawTitleBg() {
   const t = performance.now() / 1000;
-  const g = ctx.createLinearGradient(0, 0, 0, view.H);
-  g.addColorStop(0, '#070411');
-  g.addColorStop(1, '#0d1018');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, view.W, view.H);
-  if (!titleMotes.length) {
-    for (let i = 0; i < 70; i++) {
-      titleMotes.push({ x: Math.random(), y: Math.random(), r: Math.random() * 2.2 + 0.6, s: Math.random() * 0.014 + 0.004, ph: Math.random() * TAU });
+  const W = view.W, H = view.H, horizon = H * 0.74;
+  // deep sky + horizon bloom
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0a0618'); g.addColorStop(0.52, '#0b0a24'); g.addColorStop(1, '#06070f');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const hg = ctx.createRadialGradient(W * 0.5, horizon, 30, W * 0.5, horizon, Math.max(W, H) * 0.75);
+  hg.addColorStop(0, 'rgba(125,253,255,0.12)'); hg.addColorStop(0.5, 'rgba(243,220,255,0.05)'); hg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = hg; ctx.fillRect(0, 0, W, H);
+
+  if (!titleBg.inited) {
+    titleBg.inited = true;
+    for (let i = 0; i < 70; i++) titleBg.motes.push({ x: Math.random(), y: Math.random(), r: Math.random() * 2.2 + 0.5, s: Math.random() * 0.014 + 0.004, ph: Math.random() * TAU });
+    for (let layer = 0; layer < 2; layer++) {
+      const row = []; let x = -0.08;
+      while (x < 1.12) {
+        const w = 0.035 + Math.random() * 0.06, h = (0.14 + Math.random() * 0.3) * (layer === 0 ? 1 : 0.66);
+        const hue = Math.floor(Math.random() * 360), wins = [];
+        for (let k = 0; k < 5 + Math.floor(Math.random() * 6); k++) wins.push({ wx: 0.18 + Math.random() * 0.64, wy: 0.12 + Math.random() * 0.8, ph: Math.random() * TAU });
+        row.push({ x, w, h, hue, wins });
+        x += w + 0.006 + Math.random() * 0.02;
+      }
+      titleBg.layers.push(row);
+    }
+    for (let i = 0; i < 5; i++) titleBg.rails.push({ y: 0.16 + Math.random() * 0.5, sp: 40 + Math.random() * 70, dir: Math.random() < 0.5 ? 1 : -1, hue: [185, 300, 48, 160, 280][i] });
+    for (let i = 0; i < 3; i++) titleBg.comets.push({ p: Math.random(), sp: 0.16 + Math.random() * 0.22, y: 0.12 + Math.random() * 0.52, len: 0.1 + Math.random() * 0.12, up: Math.random() < 0.5 });
+  }
+
+  // parallax skyline (back layer first, dimmer)
+  for (let li = titleBg.layers.length - 1; li >= 0; li--) {
+    const row = titleBg.layers[li], baseY = horizon + li * H * 0.05;
+    for (const b of row) {
+      const bx = b.x * W, bw = b.w * W, bh = b.h * H, by = baseY - bh;
+      ctx.fillStyle = li === 0 ? '#090b18' : '#0b0d1e';
+      ctx.fillRect(bx, by, bw, H - by);
+      ctx.globalAlpha = li === 0 ? 0.7 : 0.4;            // neon roofline
+      ctx.fillStyle = `hsl(${b.hue},85%,63%)`;
+      ctx.fillRect(bx, by, bw, 2.5);
+      for (const w of b.wins) {                          // twinkling windows
+        ctx.globalAlpha = (li === 0 ? 0.55 : 0.32) * (0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 1.6 + w.ph)));
+        ctx.fillStyle = `hsl(${b.hue},90%,72%)`;
+        ctx.fillRect(bx + w.wx * bw, by + w.wy * bh, 2.6, 3.4);
+      }
     }
   }
-  for (const m of titleMotes) {
-    m.y -= m.s * 0.016;
-    if (m.y < -0.02) m.y = 1.02;
-    ctx.globalAlpha = 0.3 + Math.sin(t * 2 + m.ph) * 0.2;
+  ctx.globalAlpha = 1;
+
+  // scrolling sky-rails (the game's grind lines, teased on the menu)
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+  for (const r of titleBg.rails) {
+    const y = r.y * H;
+    ctx.globalAlpha = 0.10; ctx.strokeStyle = `hsl(${r.hue},90%,65%)`; ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y + (r.dir * H * 0.05)); ctx.stroke();
+    ctx.globalAlpha = 0.5; ctx.lineWidth = 2; ctx.setLineDash([26, 20]); ctx.lineDashOffset = -t * r.sp * r.dir;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y + (r.dir * H * 0.05)); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // rocket-boot comets: a bright dash streak zipping across the skyline
+  for (const c of titleBg.comets) {
+    c.p += c.sp * 0.016; if (c.p > 1.25) { c.p = -0.25; c.y = 0.12 + Math.random() * 0.52; c.up = Math.random() < 0.5; }
+    const x = c.p * W, y = (c.y + (c.up ? -c.p * 0.08 : c.p * 0.08)) * H;
+    const tx = x - c.len * W, ty = y - (c.up ? -c.len * 0.08 * H : c.len * 0.08 * H);
+    const grad = ctx.createLinearGradient(tx, ty, x, y);
+    grad.addColorStop(0, 'rgba(125,253,255,0)'); grad.addColorStop(1, 'rgba(234,255,255,0.9)');
+    ctx.globalAlpha = 0.85; ctx.strokeStyle = grad; ctx.lineWidth = 3.2;
+    ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(x, y); ctx.stroke();
+    ctx.globalAlpha = 0.95; ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+
+  // drifting motes
+  for (const m of titleBg.motes) {
+    m.y -= m.s * 0.016; if (m.y < -0.02) m.y = 1.02;
+    ctx.globalAlpha = 0.25 + Math.sin(t * 2 + m.ph) * 0.18;
     ctx.fillStyle = '#9eb4d8';
-    ctx.beginPath(); ctx.arc(m.x * view.W, m.y * view.H, m.r, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(m.x * W, m.y * H, m.r, 0, TAU); ctx.fill();
   }
   ctx.globalAlpha = 1;
 }

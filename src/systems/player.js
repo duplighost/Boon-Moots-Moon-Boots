@@ -11,7 +11,7 @@ import { damageEnemy } from './combat.js';
 import { damageObstacle } from './breakables.js';
 import { hooks } from './items.js';
 import { view } from '../render/camera.js';
-import { levelAt } from './levels.js';
+import { levelAt, surfaceAt } from './levels.js';
 
 export function makePlayer() {
   return {
@@ -30,7 +30,7 @@ export function makePlayer() {
     shots: 0, dashes: 0, stillT: 0, wasMoving: false, brakeT: 0, flowT: 0,
     animT: 0, moveFace: 0, rail: null, air: null, airZ: 0, ventT: 0,
     comboHealFx: 0, comboTierFx: 0, _railLatchCd: 0,
-    _ventExitX: null, _ventExitY: null, _ventExitLevel: null,
+    _ventExitX: null, _ventExitY: null, _ventExitLevel: null, _enterPortalNow: false,
     _dashFrameActive: false, _dashLastX: 750, _dashLastY: 700,
   };
 }
@@ -99,11 +99,18 @@ export function updatePlayer(p, move, aim, room, dt) {
     return;
   }
 
+  // ground surface under the boots (Moonless-inspired): slick lets you DRIFT (almost no
+  // friction), tar DRAGS you (a dash glides over it), charge plates SHOVE you along and
+  // lift your top speed. p._surface is exposed for the wake fx in draw/sprites.
+  p._surface = surfaceAt(room, p.x, p.y, p.level || 0);
+  const surf = p.dashT > 0 ? null : p._surface; // a committed dash ignores the ground
+
   // Boon Moots movement model (index.html:612-643)
   const beforeSpeed = Math.hypot(p.vx, p.vy);
   const analog = clamp(move.l, 0, 1);
-  const desiredX = move.x * p.speed * (0.58 + 0.42 * analog);
-  const desiredY = move.y * p.speed * (0.58 + 0.42 * analog);
+  const surfSpeed = surf === 'tar' ? 0.60 : surf === 'charge' ? 1.16 : 1;
+  const desiredX = move.x * p.speed * (0.58 + 0.42 * analog) * surfSpeed;
+  const desiredY = move.y * p.speed * (0.58 + 0.42 * analog) * surfSpeed;
   if (p.dashT > 0) {
     // committed dash glide — ride the impulse, ignore steering, ease out gently
     p.vx = damp(p.vx, 0, PLAYER.DASH_GLIDE, dt);
@@ -119,8 +126,10 @@ export function updatePlayer(p, move, aim, room, dt) {
     p.vy = damp(p.vy, desiredY, response, dt);
     const px = -iy, py = ix;
     const lateral = p.vx * px + p.vy * py;
-    const lf = 1 - Math.exp(-p.lateral * (0.42 + turnPressure * 0.7) * dt);
+    const grip = surf === 'slick' ? 0.30 : 1;                 // ice keeps your line → drift
+    const lf = (1 - Math.exp(-p.lateral * (0.42 + turnPressure * 0.7) * dt)) * grip;
     p.vx -= px * lateral * lf; p.vy -= py * lateral * lf;
+    if (surf === 'charge') { p.vx += ix * 1100 * dt; p.vy += iy * 1100 * dt; p.flowT = Math.max(p.flowT || 0, 0.10); }
     p.stillT = 0;
   } else {
     if (p.wasMoving && beforeSpeed > 118 && p.brakeT <= 0 && !reduced()) {
@@ -132,16 +141,18 @@ export function updatePlayer(p, move, aim, room, dt) {
           back.y * (80 + Math.random() * 110) + (Math.random() * 80 - 40), 0.20, 2 + Math.random() * 2.5);
       }
     }
-    const brake = p.stop + Math.min(13, beforeSpeed / 65);
+    const brakeMul = surf === 'slick' ? 0.28 : surf === 'tar' ? 1.7 : 1;
+    const brake = (p.stop + Math.min(13, beforeSpeed / 65)) * brakeMul;
     p.vx = damp(p.vx, 0, brake, dt); p.vy = damp(p.vy, 0, brake, dt);
-    if (Math.hypot(p.vx, p.vy) < 7) { p.vx = 0; p.vy = 0; }
+    if (Math.hypot(p.vx, p.vy) < 7 && surf !== 'slick') { p.vx = 0; p.vy = 0; }
     if (room.enemies.length > 0) p.stillT += dt;
   }
   // flow lanes: neon boost boulevards push you along them — momentum highways across
   // the sprawl. Riding one lifts the speed cap so the lane actually feels light-speed.
   applyFlowLanes(p, room, move, dt);
   const flowing = (p.flowT || 0) > 0;
-  const maxV = p.speed * (p.dashT > 0 ? PLAYER.DASH_SPEED_MULT * (flowing ? 1.36 : 1)
+  const surfCap = surf === 'slick' ? 1.12 : surf === 'tar' ? 0.66 : surf === 'charge' ? 1.30 : 1;
+  const maxV = p.speed * surfCap * (p.dashT > 0 ? PLAYER.DASH_SPEED_MULT * (flowing ? 1.36 : 1)
     : flowing ? PLAYER.MAX_SPEED_MULT * 1.85 : PLAYER.MAX_SPEED_MULT);
   let sp = Math.hypot(p.vx, p.vy);
   if (sp > maxV) { p.vx = p.vx / sp * maxV; p.vy = p.vy / sp * maxV; sp = maxV; }
@@ -157,11 +168,21 @@ export function updatePlayer(p, move, aim, room, dt) {
   for (const o of room.obstacles) if (!o.gone) resolveCircleObstacle(p, o);
   p.level = levelAt(room, p.x, p.y); // ground=0, raised platform=1 (set by ramps)
   if (p.dashT > 0) {
-    maybeVentLaunch(p, room, oldX, oldY, true);
-    maybeLatchRail(p, room, oldX, oldY, p._dashStartLevel ?? oldLevel);
+    // on the victory lap the express rail wins over vents, so a dash toward the exit
+    // always grabs the rail home instead of getting bounced up a launcher.
+    const tookExpress = room.escapeRail && !room.escapeRail.used && tryLatchEscapeRail(p, room, oldX, oldY);
+    if (!tookExpress) {
+      maybeVentLaunch(p, room, oldX, oldY, true);
+      maybeLatchRail(p, room, oldX, oldY, p._dashStartLevel ?? oldLevel);
+    }
     performDashCut(p, room, PLAYER.DASH_SWEEP_RANGE || PLAYER.DASH_HIT_RANGE); // cut enemies along the travel, not just at launch
   } else {
     maybeVentLaunch(p, room, oldX, oldY, false);
+    // The express escape rail is so forgiving you can grab it just by carrying speed
+    // toward it — no precise dash required (the brief: "easy to dash onto").
+    if (room.escapeRail && !room.escapeRail.used && !p.rail && !p.air && Math.hypot(p.vx, p.vy) > 260) {
+      tryLatchEscapeRail(p, room, oldX, oldY, true); // only when heading for the exit
+    }
   }
 
   finishPlayerFrame(p, room, Math.hypot(p.vx, p.vy), dt, move.active);
@@ -304,6 +325,15 @@ function finishPlayerFrame(p, room, sp, dt, movingIntent) {
     particle(room, p.x + bx * 26, p.y - 10 + by * 26, dashLike ? room.biome.pal.accent3 : room.biome.pal.accent,
       bx * 55, by * 55, dashLike ? 0.18 : 0.14, dashLike ? 6 : 3.5, 'dot');
   }
+  // ground-surface wake — sells the surface you're skating on (ice shimmer / charge
+  // sparks / tar bubbles), only on foot (not airborne / railing).
+  if (p._surface && sp > 130 && !p.air && !p.rail?.active && !reduced() && Math.random() < 0.55) {
+    const inv = 1 / sp, bx = -p.vx * inv, by = -p.vy * inv;
+    const col = p._surface === 'tar' ? '#150a18' : p._surface === 'charge' ? room.biome.pal.accent3 : '#eaffff';
+    particle(room, p.x + bx * 16, p.y + 8 + by * 16, col,
+      bx * 60 + (Math.random() * 70 - 35), by * 60 + (Math.random() * 70 - 35),
+      0.24, p._surface === 'charge' ? 3.6 : 2.6, 'dot');
+  }
   // afterimages — longer-lived and more numerous during a dash/rail rocket/vent hop
   p.after.unshift({
     x: p.x, y: p.y, face: p.face, spin: dashSpinPhase(p), life: dashLike ? 0.22 : 0.16,
@@ -441,6 +471,7 @@ function pointToRailS(room, p, x, y) {
 
 function maybeLatchRail(p, room, x0 = p.x, y0 = p.y, startLevel = p.level || 0) {
   if (p.rail?.active || p.air || (p._railLatchCd || 0) > 0) return false;
+  if (tryLatchEscapeRail(p, room, x0, y0)) return true; // victory-lap express wins priority
   if (tryLatchSkyRail(p, room, x0, y0, startLevel)) return true;
   if (!room.edgeRail) return false;
   const B = railBounds(room, p);
@@ -497,6 +528,77 @@ function skyRailPoint(r, u) {
   return { x: r.x1 + dx * u, y: r.y1 + dy * u, tx, ty, nx: -ty, ny: tx, u, len };
 }
 
+// ── Express escape rail (spawned on room clear, rooms.js spawnEscapeRail) ──
+// A single forgiving grind line from where you cleared the room to the portal. Latches
+// from ANY level with a fat magnetic window so one dash (or just carrying speed) toward
+// the exit rockets you home at ultra speed. Optional — you can ignore it and walk.
+function tryLatchEscapeRail(p, room, x0, y0, requireToward = false) {
+  const r = room.escapeRail;
+  if (!r || r.used || p.rail?.active || p.air || (p._railLatchCd || 0) > 0) return false;
+  const info = pointSegmentInfo(p.x, p.y, r.x1, r.y1, r.x2, r.y2);
+  const segd = segmentSegmentDist(x0, y0, p.x, p.y, r.x1, r.y1, r.x2, r.y2);
+  const reach = (r.width || 58) + p.r + 56; // deliberately huge — trivial to grab
+  if (info.d > reach && segd > reach) return false;
+  // Auto-latch (just carrying speed, no dash) must only fire when you're actually
+  // heading for the exit — otherwise crossing/backtracking near the line would yank
+  // you home against your will. A deliberate dash skips this (the dash IS the intent).
+  if (requireToward) {
+    const sp = Math.hypot(p.vx, p.vy) || 1;
+    const tn = norm(r.x2 - p.x, r.y2 - p.y);
+    if ((p.vx * tn.x + p.vy * tn.y) / sp < 0.4) return false; // not moving portal-ward
+  }
+  p.rail = {
+    active: true, kind: 'escape', rail: r, u: clamp(info.t, 0, 0.97), dir: 1,
+    speed: Math.max(1500, Math.hypot(p.vx, p.vy)), rocketT: 0, t: 0,
+  };
+  p.dashT = 0; p.dashCd = 0;
+  p.inv = Math.max(p.inv, 0.4);
+  p.x = info.cx; p.y = info.cy; p.level = r.level || 0;
+  sfx('dash'); haptic(16); addShake(0.2); hitPause('shot');
+  ripple(room, p.x, p.y, r.color, 132, 0.46);
+  burst(room, p.x, p.y, '#ffffff', 20, 320, 0.3, 3.6);
+  addFloat(room, p.x, p.y - 50, '↯↯', r.color, true, 0.5);
+  return true;
+}
+
+function updateEscapeRailRide(p, room, move, dt) {
+  const r = p.rail.rail;
+  if (!r || r.used) { p.rail = null; return false; }
+  p.rail.t += dt;
+  const target = 2750; // ultra speed home
+  p.rail.speed = damp(p.rail.speed || target, target, 8, dt);
+  const info0 = skyRailPoint(r, p.rail.u || 0);
+  p.rail.u = (p.rail.u || 0) + p.rail.speed * dt / Math.max(1, info0.len);
+  // a hard perpendicular flick bails you off — you stay in control of the lap
+  if (move.active) {
+    const side = move.x * info0.nx + move.y * info0.ny;
+    if (p.rail.t > 0.07 && Math.abs(side) > 0.62) {
+      return detachRail(p, room, { ...info0, dir: 1 }, info0.nx * Math.sign(side), info0.ny * Math.sign(side),
+        { speed: 820, carry: 360, cd: 0.26, glyph: '↘', color: r.color });
+    }
+  }
+  const ended = p.rail.u >= 1;
+  const at = skyRailPoint(r, clamp(p.rail.u, 0, 1));
+  p.x = at.x; p.y = at.y;
+  p.vx = at.tx * p.rail.speed; p.vy = at.ty * p.rail.speed;
+  p.level = r.level || 0; p.stillT = 0; p.inv = Math.max(p.inv, 0.25);
+  if (!reduced() && Math.random() < 0.9) {
+    const bx = -at.tx, by = -at.ty;
+    particle(room, p.x + bx * 18, p.y + by * 18, Math.random() < 0.5 ? '#ffffff' : r.color,
+      bx * (160 + Math.random() * 220), by * (160 + Math.random() * 220), 0.2, 5.5, 'dot');
+  }
+  if (ended) {
+    r.used = true;
+    p.x = r.x2; p.y = r.y2; p.vx *= 0.18; p.vy *= 0.18;
+    p.rail = null; p._railLatchCd = Math.max(p._railLatchCd || 0, 0.1);
+    p.level = levelAt(room, p.x, p.y);
+    p._enterPortalNow = true; // deliver straight into the portal (rooms.updateRound)
+    ripple(room, p.x, p.y, r.color, 120, 0.42);
+    burst(room, p.x, p.y, '#ffffff', 16, 240, 0.3, 3);
+  }
+  return true;
+}
+
 function segmentSegmentDist(ax, ay, bx, by, cx, cy, dx, dy) {
   if (segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy)) return 0;
   return Math.min(
@@ -542,6 +644,7 @@ function detachRail(p, room, info, ix, iy, opts = {}) {
 
 function updateRailRide(p, room, move, dt) {
   if (!p.rail?.active) return false;
+  if (p.rail.kind === 'escape') return updateEscapeRailRide(p, room, move, dt);
   if (p.rail.kind === 'sky') return updateSkyRailRide(p, room, move, dt);
   const info0 = railPoint(room, p, p.rail.s || 0);
   if (move.active) {

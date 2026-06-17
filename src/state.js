@@ -5,7 +5,6 @@ import { hashString, mulberry32 } from './rng.js';
 function defaultSave() {
   return {
     version: VERSION, bestScore: 0, bestRound: 0, runs: 0, sparks: 0,
-    dailyBest: { date: '', score: 0 },
     settings: { sfx: true, bgm: true },
     bestiary: {}, notices: [], seenItems: {}, shrine: {},
     lifetime: { kills: 0, rooms: 0, deaths: 0, wins: 0, timePlayed: 0 },
@@ -45,8 +44,7 @@ export const state = {
 };
 
 export function newRun(seedText = Date.now()) {
-  // seed must NOT fold in the runs counter: same seed = same run (daily mode).
-  const seed = hashString(String(seedText) + '|oneroom');
+  const seed = hashString(String(seedText) + '|rocketshoes');
   state.run = {
     seed, seedText: String(seedText), rng: mulberry32(seed),
     round: 0, score: 0, combo: 1, comboT: 0,

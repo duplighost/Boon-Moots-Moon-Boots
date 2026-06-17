@@ -1,7 +1,7 @@
 // DOM overlays + HUD. Imports only state; actions arrive as callbacks (no cycles).
 import { state, saveNow } from '../state.js';
 import { clamp } from '../rng.js';
-import { SHRINE_DEFS, buyShrine, OATHS, oathsUnlocked, dailyBestToday } from '../systems/meta.js';
+import { SHRINE_DEFS, buyShrine } from '../systems/meta.js';
 import { TITLE_TAGLINES } from '../data/lines.js';
 import { ENEMY_TYPES, BESTIARY } from '../data/enemies.js';
 import { BOSSES } from '../systems/bosses.js';
@@ -29,6 +29,7 @@ export function wireBgmButton(onToggle) {
 
 export function showOverlay(title, copy, buttons, meta = '', bodyHtml = '') {
   if (!ui?.overlay) return;
+  ui.overlay.classList.remove('titleScreen'); // only showTitle opts back in
   ui.overlayTitle.textContent = title;
   ui.overlayCopy.textContent = copy;
   ui.overlayMeta.textContent = meta;
@@ -52,42 +53,24 @@ export function hideOverlays() {
   ui?.draft?.classList.remove('show');
 }
 
-let selectedOath = 'none';
 let menuRef = null;
 let lastDeath = null;
 
 export function setMenu(menu) { menuRef = menu; }
-export const currentOath = () => selectedOath;
 
 export function showTitle(menu = menuRef) {
   const s = state.save;
-  const daily = dailyBestToday();
-  const meta = [
-    s.bestScore ? `best ${Math.floor(s.bestScore).toLocaleString()} · round ${s.bestRound} · ${s.runs} runs` : 'two thumbs, one room',
-    daily != null ? `today's daily: ${daily.toLocaleString()}` : null,
-    `✦ ${(s.sparks || 0).toLocaleString()} sparks`,
-  ].filter(Boolean).join('  ·  ');
+  const meta = (s.bestScore
+    ? `best ${Math.floor(s.bestScore).toLocaleString()} · round ${s.bestRound} · ${s.runs} runs`
+    : 'lace up. the city is the level.')
+    + `  ·  ✦ ${(s.sparks || 0).toLocaleString()} sparks`;
   const buttons = [
-    ['Play', () => menu.start(selectedOath)],
-    ['Daily', () => menu.daily(selectedOath)],
+    ['▶  Play', () => menu.start()],
     ['Shrine', () => showShrine(menu)],
     ['Codex', () => showCodex(menu)],
   ];
-  const body = showOverlay('One Room No Moon', TITLE_TAGLINES[0], buttons, meta);
-  if (body && oathsUnlocked()) {
-    const row = document.createElement('div');
-    row.className = 'oathRow';
-    for (const oath of OATHS) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'oathBtn' + (selectedOath === oath.id ? ' sel' : '');
-      b.textContent = oath.name;
-      b.title = oath.desc;
-      b.onclick = () => { selectedOath = oath.id; showTitle(menu); };
-      row.appendChild(b);
-    }
-    body.appendChild(row);
-  }
+  showOverlay('Rocket Shoes', TITLE_TAGLINES[0], buttons, meta);
+  if (ui?.overlay) ui.overlay.classList.add('titleScreen'); // hero wordmark over the live city
 }
 
 export function showDeath(stats, onRestart) {
@@ -97,8 +80,7 @@ export function showDeath(stats, onRestart) {
   if (menu) buttons.push(['Shrine', () => showShrine(menu, true)], ['Codex', () => showCodex(menu, true)]);
   showOverlay(
     stats.title || 'The boon boots remain.',
-    `Score ${stats.score.toLocaleString()} · round ${stats.round} · ${stats.kills} marks.` +
-    (stats.daily ? ' (daily run)' : ''),
+    `Score ${stats.score.toLocaleString()} · round ${stats.round} · ${stats.kills} marks.`,
     buttons,
     `best ${Math.floor(stats.best).toLocaleString()} · round ${stats.bestRound} · ✦ ${(state.save.sparks || 0).toLocaleString()} sparks`,
   );
@@ -180,7 +162,7 @@ export function updateHud() {
   if (!ui?.zone) return;
   const run = state.run, room = state.room;
   if (!run || !room) {
-    ui.zone.textContent = 'One Room No Moon';
+    ui.zone.textContent = 'Rocket Shoes';
     ui.roomNo.textContent = 'round 0';
     ui.hp.textContent = '♥♥♥♥♥♥';
     ui.score.textContent = '0';

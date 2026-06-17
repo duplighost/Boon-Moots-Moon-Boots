@@ -8,26 +8,24 @@ import { makePlayer } from './player.js';
 import { roomClearScore } from './score.js';
 import { vacuumSparks } from './pickups.js';
 import { wavesDone } from './director.js';
-import { addFloat, burst } from '../render/particles.js';
+import { addFloat, burst, ripple } from '../render/particles.js';
 import { snapCamera } from '../render/camera.js';
+import { addShake, addFlash, slowMo } from './juice.js';
 import { sfx } from '../audio/sfx.js';
 import { suppressInput } from '../ui/input.js';
 import { showDeath, showOverlay, hideOverlays, updateHud, whisper } from '../ui/overlays.js';
 import { hooks } from './items.js';
 import { openDraft, chooseCards, grantItem } from './draft.js';
 import { dropPickup } from './pickups.js';
-import { applyShrine, applyOath, bankDaily } from './meta.js';
+import { applyShrine } from './meta.js';
 import { notice } from './notices.js';
 import { CLEAR_LINES, DEATH_LINES, MUTATOR_LINES } from '../data/lines.js';
 
-export function startRun(seedText = Date.now(), opts = {}) {
+export function startRun(seedText = Date.now()) {
   hooks.clear();
   const run = newRun(seedText);
-  run.daily = !!opts.daily;
-  run.oath = opts.oath && opts.oath !== 'none' ? opts.oath : null;
   run.player = makePlayer();
   applyShrine(run.player);
-  applyOath(run, run.player);
   hideOverlays();
   state.mode = 'play';
   if (state.save.shrine?.shrine_head) {
@@ -52,6 +50,7 @@ function applyRoom(room) {
   p.dashT = 0; p.dashCd = 0;
   p.rail = null; p.air = null; p.airZ = 0; p.ventT = 0; p.flowT = 0;
   p.brakeT = 0; p._ventCd = 0; p._railLatchCd = 0; p.comboHealFx = 0; p.comboTierFx = 0;
+  p._enterPortalNow = false; p._ventExitX = null; p._ventExitY = null; p._ventExitLevel = null;
   state.run.lastComboHealTier = null;
   p._dashStartLevel = null; p._dashHitIds = null;
   p._dashCutPrimed = false; p._dashFrameActive = false; p._lastX = p.x; p._lastY = p.y; p._dashLastX = p.x; p._dashLastY = p.y;
@@ -107,16 +106,44 @@ export function clearRoom(room) {
   boon.progress += room.bossId ? boon.need : 1; // bosses pay full lacing
   if (boon.progress >= boon.need) { boon.progress = 0; boon.charges = Math.min(1, boon.charges + 1); }
   if (room.bossId === 'archon' && !state.run.overdrive && !state.run.won) routeWin();
-  room.portal = { x: room.w / 2, y: room.h * 0.20, r: 55, t: 0 };
+  room.portal = { x: room.w / 2, y: room.h * 0.20, r: 62, t: 0, open: 0 };
   if (room.eventId === 'ambushNest') {
     dropPickup(room, 'heart', room.portal.x, room.portal.y + 80);
     addFloat(room, room.portal.x, room.portal.y + 60, '+1 ♥', '#ff8ea6', true, 0.70);
   }
-  for (let i = 0; i < 40; i++) {
-    const a = (i / 40) * Math.PI * 2, rr = 40 + Math.random() * 150;
-    burst(room, room.portal.x, room.portal.y, room.biome.pal.accent3, 1, rr * 1.6, 0.75, 3);
+  // ── Make the clear UNMISSABLE: a screen flash + slam, a shockwave off the player,
+  // a banner, and a portal that visibly punches open with a column of light. ──
+  addFlash(0.5); addShake(0.42); slowMo(0.12);
+  sfx('portal');
+  ripple(room, p.x, p.y, '#ffffff', 220, 0.7);
+  ripple(room, p.x, p.y, room.biome.pal.accent2, 320, 0.5);
+  addFloat(room, p.x, p.y - 96, 'STAGE CLEAR', '#ffffff', true, 1.25);
+  addFloat(room, p.x, p.y - 60, '↯ dash the rail home', room.biome.pal.accent2, false, 1.1);
+  for (let i = 0; i < 50; i++) {
+    const a = (i / 50) * Math.PI * 2, rr = 40 + Math.random() * 170;
+    burst(room, room.portal.x, room.portal.y, room.biome.pal.accent3, 1, rr * 1.7, 0.85, 3);
   }
+  spawnEscapeRail(room, p);
   hooks.run('onRoomClear', room);
+}
+
+// The express rail: a bright, ultra-fast grind line that springs from where you stand
+// straight to the portal. It is deliberately forgiving to latch (player.js
+// tryLatchEscapeRail) so a single dash toward the exit rockets you home — the smooth,
+// obvious victory lap the brief asked for. You can still walk if you want.
+function spawnEscapeRail(room, p) {
+  const po = room.portal;
+  if (!po) return;
+  if (dist(p.x, p.y, po.x, po.y) < 320) { room.escapeRail = null; return; } // already on top of it
+  // A ground-level express lane straight to the (ground-level) portal. Level 0 always,
+  // so it never floats off a rooftop and the rider lands at the portal cleanly even if
+  // the room was cleared up top (latching simply drops you onto the lane).
+  room.escapeRail = {
+    x1: p.x, y1: p.y, x2: po.x, y2: po.y,
+    level: 0, width: 58, used: false, t: 0, phase: 0,
+    color: '#eaffff',
+  };
+  addFloat(room, (p.x + po.x) / 2, (p.y + po.y) / 2, '↯', '#eaffff', true, 0.9);
 }
 
 export function updateRound(dt) {
@@ -132,8 +159,13 @@ export function updateRound(dt) {
 
   if (room.portal) {
     room.portal.t += dt;
+    room.portal.open = Math.min(1, (room.portal.open || 0) + dt * 2.4); // punch-open animation
     room.clearT = Math.max(0, room.clearT - dt);
-    if (room.clearT <= 0 && dist(room.portal.x, room.portal.y, p.x, p.y) < room.portal.r + p.r) {
+    // Normal entry waits a beat (the clear read); the express rail delivers you
+    // straight in (p._enterPortalNow) so the victory lap never stalls at the door.
+    const onPortal = dist(room.portal.x, room.portal.y, p.x, p.y) < room.portal.r + p.r;
+    if (onPortal && (p._enterPortalNow || room.clearT <= 0)) {
+      p._enterPortalNow = false;
       enterPortal();
     }
   }
@@ -200,12 +232,11 @@ export function die() {
   state.mode = 'dead';
   state.save.lifetime.deaths++;
   bankBests();
-  bankDaily();
   updateHud();
   showDeath({
     score: Math.floor(run.score), round: run.round,
     best: state.save.bestScore, bestRound: state.save.bestRound,
-    kills: run.kills, daily: run.daily,
+    kills: run.kills,
     title: DEATH_LINES[Math.floor(Math.random() * DEATH_LINES.length)],
-  }, () => startRun(Date.now(), { oath: run.oath || 'none' }));
+  }, () => startRun());
 }
