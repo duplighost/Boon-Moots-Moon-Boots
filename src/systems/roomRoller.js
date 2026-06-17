@@ -71,10 +71,10 @@ export function rollRoom(run, round) {
     floorplanId: 'none', openings: [], sanctum: null, tiers: [], vents: [], setpieces: [],
     surfaces: [], escapeRail: null,
     districts: [], flowLanes: [], skyRails: [], skyways: [], signs: [], traffic: [], districtName: '', districtSubtitle: '', backgroundScale: 1,
-    // city-scale sprawl — give the player a LOT of ground to dash across. Density
-    // (cover, ambient, enemy budget) scales with area below so the space stays full.
-    w: Math.round((portrait ? rand(rng, 2300, 2700) : rand(rng, bossId ? 4200 : 5400, bossId ? 5000 : 6400)) * sizeScale * deviceScale),
-    h: Math.round((portrait ? rand(rng, 3100, 3700) : rand(rng, bossId ? 3100 : 3800, bossId ? 3800 : 4600)) * sizeScale * deviceScale),
+    // XL city-scale sprawl — bigger than either fork. Density (cover, rooftops, rails,
+    // surfaces, landmarks, enemy budget) all scale with area below so it stays packed.
+    w: Math.round((portrait ? rand(rng, 2750, 3350) : rand(rng, bossId ? 5200 : 6900, bossId ? 6200 : 8600)) * sizeScale * deviceScale),
+    h: Math.round((portrait ? rand(rng, 3850, 4750) : rand(rng, bossId ? 4000 : 4900, bossId ? 4900 : 6100)) * sizeScale * deviceScale),
     wall: ROOM.WALL,
     obstacles: [], landmarks: [], annex: null, hazards: [], lanes: [], edgeRail: { phase: rng() * TAU },
     enemies: [], bullets: [], pickups: [], particles: [], floats: [],
@@ -244,7 +244,7 @@ export function rollRoom(run, round) {
 
   // ── ambient particles ──
   // ambient drift fills the sprawl with life (the cheap, non-obstructive kind of "full")
-  const ambN = Math.round((view.mobile ? 42 : 82) * Math.min(3.2, Math.sqrt(roomAreaScale(room))));
+  const ambN = Math.round((view.mobile ? 48 : 96) * Math.min(4.2, Math.sqrt(roomAreaScale(room))));
   for (let i = 0; i < ambN; i++) {
     room.ambient.push({
       type: pick(rng, biome.ambient), x: rng() * room.w, y: rng() * room.h,
@@ -544,7 +544,7 @@ function seedVerticality(room, rng, px, py, portalX, portalY, partitioned) {
   // instead of scattered.
   const wantsTier = chance(rng, partitioned ? 0.94 : 1.0);
   if (!wantsTier) return 0;
-  const cap = room.bossId ? (view.mobile ? 4 : 7) : view.mobile ? (partitioned ? 5 : 7) : (partitioned ? 10 : 14);
+  const cap = room.bossId ? (view.mobile ? 5 : 8) : view.mobile ? (partitioned ? 6 : 8) : (partitioned ? 13 : 18);
   let made = seedRooftopGrid(room, rng, px, py, portalX, portalY, partitioned, cap);
   const target = room.bossId
     ? clamp(view.mobile ? 3 : 5, 3, cap)
@@ -706,7 +706,7 @@ function rectOverlap(a, b, margin = 0) {
 function ensureMinimumVerticality(room, rng, px, py, portalX, portalY) {
   const minRoofs = room.bossId ? (view.mobile ? 3 : 5) : (view.mobile ? 4 : 6);
   if ((room.tiers || []).length >= minRoofs) return;
-  const cap = room.bossId ? (view.mobile ? 4 : 7) : view.mobile ? 6 : 12;
+  const cap = room.bossId ? (view.mobile ? 5 : 8) : view.mobile ? 8 : 16;
   const before = room.tiers.length;
   seedOpenRooftopFallback(room, rng, px, py, portalX, portalY, minRoofs, cap);
   pruneUnreachableTiers(room, px, py);
@@ -976,10 +976,11 @@ function seedSurfaces(room, rng, px, py, portalX, portalY) {
   }
   if (room.bossId) return;
 
-  // slick plazas (drift), a couple of charge pads, and a sticky tar pool or two.
-  for (let i = 0, n = randi(rng, 1, 2) + (scale > 4 ? 1 : 0); i < n; i++) addGround('slick', rand(rng, 150, 230), pal.accent2);
-  for (let i = 0, n = randi(rng, 1, 2); i < n; i++) addGround('charge', rand(rng, 110, 165), pal.accent3);
-  for (let i = 0, n = randi(rng, 1, 2); i < n; i++) addGround('tar', rand(rng, 110, 170), mixHexA(pal.bad, pal.bg, 0.5));
+  // slick plazas (drift), charge pads, and sticky tar pools — scaled to the XL floor.
+  const sBonus = Math.round(clamp(scale / 4, 0, 2));
+  for (let i = 0, n = randi(rng, 2, 3) + sBonus; i < n; i++) addGround('slick', rand(rng, 160, 250), pal.accent2);
+  for (let i = 0, n = randi(rng, 2, 3) + sBonus; i < n; i++) addGround('charge', rand(rng, 120, 180), pal.accent3);
+  for (let i = 0, n = randi(rng, 1, 2) + sBonus; i < n; i++) addGround('tar', rand(rng, 120, 185), mixHexA(pal.bad, pal.bg, 0.5));
 
   // a slick or charge cap on a couple of rooftops, so the upper layer has its own feel.
   const roofs = [...(room.tiers || [])].sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, view.mobile ? 1 : 3);
@@ -1010,7 +1011,7 @@ function seedDistrictLandmarks(room, rng, px, py, portalX, portalY) {
   const pal = room.biome.pal;
   const onTier = (x, y, pad = 0) => (room.tiers || []).some(t => x > t.x - pad && x < t.x + t.w + pad && y > t.y - pad && y < t.y + t.h + pad);
   const kinds = ['reflectPool', 'observatory', 'arcadeSpire'];
-  const target = randi(rng, 1, view.mobile ? 1 : 2);
+  const target = view.mobile ? randi(rng, 1, 2) : randi(rng, 2, 3) + (roomAreaScale(room) > 7 ? 1 : 0);
   for (let i = 0; i < target; i++) {
     for (let tries = 0; tries < 44; tries++) {
       const x = rand(rng, room.w * 0.18, room.w * 0.82);
@@ -1031,8 +1032,8 @@ function seedDistrictLandmarks(room, rng, px, py, portalX, portalY) {
 
 function seedLandmarkProps(room, rng, px, py, portalX, portalY) {
   const kinds = ['holoTower', 'moonPool', 'signalPylon', 'marketArch', 'ghostBillboard', 'bridgeMast', 'liftBeacon'];
-  const target = room.bossId ? randi(rng, 4, 7) : randi(rng, view.mobile ? 9 : 16, view.mobile ? 14 : 26);
-  for (let tries = 0; tries < 220 && room.setpieces.length < target; tries++) {
+  const target = room.bossId ? randi(rng, 4, 7) : randi(rng, view.mobile ? 11 : 20, view.mobile ? 17 : 34);
+  for (let tries = 0; tries < 300 && room.setpieces.length < target; tries++) {
     let x = rand(rng, room.wall + 190, room.w - room.wall - 190);
     let y = rand(rng, room.wall + 170, room.h - room.wall - 190);
     // Bias a couple of landmarks toward high-ground destinations so vents have

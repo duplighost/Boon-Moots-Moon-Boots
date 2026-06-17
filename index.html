@@ -106,38 +106,40 @@ button:hover{border-color:rgba(255,255,255,.22)}
 .miniBtn{min-height:44px; min-width:44px}
 .bigBtn{transition:transform .12s ease, box-shadow .2s ease}
 
-/* ── Title screen: hero wordmark floating over the live neon-city backdrop ── */
-.modalHost.titleScreen{background:rgba(3,5,11,.30)}
-.modalHost.titleScreen .modal{
-  padding-top:38px;
-  border:1px solid rgba(255,255,255,.12);
-  background:linear-gradient(180deg,rgba(10,14,26,.62),rgba(8,10,20,.46));
-  box-shadow:0 30px 90px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08);
+/* ── Title screen: the poster art IS the title. It covers the screen in portrait and
+   is centred (contain) over the live neon-city canvas in landscape, so one image reads
+   right on phone, on desktop, and when you tilt the phone sideways. Buttons sit on a
+   bottom gradient; the HUD hides so the art is clean. ── */
+#titlePoster{
+  position:fixed; inset:0; z-index:1; pointer-events:none; display:none;
+  background:transparent center top / cover no-repeat;   /* transparent → live canvas fills the landscape letterbox / load gap */
+  background-image:url(./assets/title-portrait.png);
 }
-.modalHost.titleScreen h1{
-  margin:0 0 6px; font-weight:900; text-transform:uppercase;
-  font-size:clamp(46px,12.5vw,104px); line-height:.86; letter-spacing:-.055em;
-  background:linear-gradient(105deg,#7dfdff 0%,#eaffff 26%,#f3dcff 52%,#ff9bf5 74%,#ffd36e 100%);
-  background-size:220% 100%; -webkit-background-clip:text; background-clip:text; color:transparent;
-  filter:drop-shadow(0 0 26px rgba(125,253,255,.45)) drop-shadow(0 0 52px rgba(243,220,255,.28));
-  animation:titleSheen 5.5s linear infinite;
-}
-@keyframes titleSheen{from{background-position:0 0}to{background-position:220% 0}}
-.modalHost.titleScreen p{font-size:14.5px; max-width:34ch; margin:2px auto 18px; color:#c2d4f2}
+body.onTitle #titlePoster{display:block}
+@media (orientation:landscape){ body.onTitle #titlePoster{background-size:contain; background-position:center} }
+body.onTitle #hud, body.onTitle #buildChips, body.onTitle #whisper{display:none}
+body.onTitle #overlay{align-items:flex-end;
+  background:linear-gradient(to top,rgba(3,5,11,.94) 2%,rgba(3,5,11,.55) 22%,rgba(3,5,11,0) 48%)}
+body.onTitle #overlay .modal{background:transparent; border:none; box-shadow:none; max-width:560px;
+  padding:0 18px calc(20px + env(safe-area-inset-bottom,0px))}
+body.onTitle #overlay h1, body.onTitle #overlay #overlayCopy{display:none} /* poster carries logo + tagline */
+body.onTitle #overlay .meta{color:#d6e4f8; margin-top:11px; text-shadow:0 1px 6px #000}
 .modalHost.titleScreen .bigBtn:first-child{
-  min-width:210px; font-size:17px; padding:15px 26px; letter-spacing:.02em;
-  border-color:rgba(125,253,255,.55);
-  background:linear-gradient(180deg,rgba(125,253,255,.24),rgba(243,220,255,.10));
-  box-shadow:0 0 22px rgba(125,253,255,.32), inset 0 1px 0 rgba(255,255,255,.18);
+  min-width:210px; font-size:18px; padding:15px 28px; letter-spacing:.02em;
+  border-color:rgba(125,253,255,.6);
+  background:linear-gradient(180deg,rgba(125,253,255,.28),rgba(243,220,255,.12));
+  box-shadow:0 0 26px rgba(125,253,255,.4), inset 0 1px 0 rgba(255,255,255,.2);
 }
 .modalHost.titleScreen .bigBtn:first-child:hover{
-  border-color:rgba(234,255,255,.9); transform:translateY(-2px);
-  box-shadow:0 0 36px rgba(125,253,255,.55), inset 0 1px 0 rgba(255,255,255,.26);
+  border-color:rgba(234,255,255,.95); transform:translateY(-2px);
+  box-shadow:0 0 40px rgba(125,253,255,.6), inset 0 1px 0 rgba(255,255,255,.28);
 }
+.modalHost.titleScreen .buttonRow{gap:12px}
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+<div id="titlePoster" aria-hidden="true"></div>
 
 <div id="hud">
   <div class="chip panel">

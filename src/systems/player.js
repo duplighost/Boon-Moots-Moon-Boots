@@ -379,6 +379,7 @@ function updateAirborne(p, room, dt) {
 
 function maybeVentLaunch(p, room, x0, y0, fromDash) {
   if (p._ventCd > 0 || p.air) return false;
+  if (room.cleared) return false; // victory lap: vents go quiet, the express rail is the way home
   if (p._ventExitX != null && (p.level || 0) === (p._ventExitLevel || 0) && dist(p.x, p.y, p._ventExitX, p._ventExitY) < 116) return false;
   const vents = room.vents || [];
   if (!vents.length) return false;

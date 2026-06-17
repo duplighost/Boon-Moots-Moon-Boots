@@ -5,6 +5,7 @@ import { hashString, mulberry32 } from './rng.js';
 function defaultSave() {
   return {
     version: VERSION, bestScore: 0, bestRound: 0, runs: 0, sparks: 0,
+    gotDressed: false,   // unlocked the first time you beat the final boss — Moots wears the shirt forever
     settings: { sfx: true, bgm: true },
     bestiary: {}, notices: [], seenItems: {}, shrine: {},
     lifetime: { kills: 0, rooms: 0, deaths: 0, wins: 0, timePlayed: 0 },

@@ -49,7 +49,7 @@ function buildPool(round, recipe) {
 
 export function rollComposition(rng, round, recipe, overdrive, budgetMult = 1) {
   const stage = dangerStage(round, overdrive);
-  let budget = (8 + round * 1.55 + stage * 1.35 + (RECIPES[recipe]?.countAdj || 0)) * budgetMult;
+  let budget = (11 + round * 1.95 + stage * 1.7 + (RECIPES[recipe]?.countAdj || 0)) * budgetMult;
   const cap = view.mobile ? CAPS.ENEMIES.mobile : CAPS.ENEMIES.desktop;
   const pool = buildPool(round, recipe);
   const list = [];
@@ -139,7 +139,7 @@ function spawnPoints(room, rng, n) {
 export function buildWaves(room, rng) {
   const round = room.round;
   // scale the enemy budget with the (now city-scale) room so the sprawl stays full of action
-  const areaMult = clamp(Math.sqrt((room.w * room.h) / (1500 * 1020)), 1, 2.45);
+  const areaMult = clamp(Math.sqrt((room.w * room.h) / (1500 * 1020)), 1, 3.1);
 
   if (room.bossId) {
     // boss arena: the boss is present as the room reveals; two escort waves follow

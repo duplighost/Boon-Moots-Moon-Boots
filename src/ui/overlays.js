@@ -30,6 +30,7 @@ export function wireBgmButton(onToggle) {
 export function showOverlay(title, copy, buttons, meta = '', bodyHtml = '') {
   if (!ui?.overlay) return;
   ui.overlay.classList.remove('titleScreen'); // only showTitle opts back in
+  document.body?.classList.remove('onTitle'); // hide the poster/chrome for non-title overlays
   ui.overlayTitle.textContent = title;
   ui.overlayCopy.textContent = copy;
   ui.overlayMeta.textContent = meta;
@@ -51,6 +52,7 @@ export function hideOverlays() {
   ui?.overlay?.classList.remove('show');
   ui?.pause?.classList.remove('show');
   ui?.draft?.classList.remove('show');
+  document.body?.classList.remove('onTitle'); // entering a run clears the title chrome
 }
 
 let menuRef = null;
@@ -70,7 +72,8 @@ export function showTitle(menu = menuRef) {
     ['Codex', () => showCodex(menu)],
   ];
   showOverlay('Rocket Shoes', TITLE_TAGLINES[0], buttons, meta);
-  if (ui?.overlay) ui.overlay.classList.add('titleScreen'); // hero wordmark over the live city
+  if (ui?.overlay) ui.overlay.classList.add('titleScreen');
+  document.body?.classList.add('onTitle'); // show the poster art + hide HUD chrome
 }
 
 export function showDeath(stats, onRestart) {

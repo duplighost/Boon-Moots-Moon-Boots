@@ -213,17 +213,25 @@ function routeWin() {
   run.won = true;
   run.overdrive = true;
   state.save.lifetime.wins++;
-  bankBests();
+  // First clear of the final boss: Moots earns the shirt — worn forever after. Save it
+  // right away so the unlock survives even if the player closes the tab here.
+  const firstTime = !state.save.gotDressed;
+  state.save.gotDressed = true;
+  bankBests();          // writes the save (bests + the new gotDressed flag)
+  saveNow();            // belt-and-suspenders: guarantee the cosmetic unlock persists
   notice('endless');
   state.oldMode = 'play';
   state.mode = 'pause'; // freeze the world under the overlay; portal waits
   showOverlay(
-    'ROUTE BURNT OPEN',
-    `The throne cracked. Score ${Math.floor(run.score).toLocaleString()} · round ${run.round}. ` +
-    'The room does not stop. It just stops pretending there was a bottom.',
-    [['Descend deeper ∞', () => { hideOverlays(); state.mode = 'play'; }],
-     ['Run it back', () => startRun()]],
-    'overdrive: ×1.35 score · the whole biome deck · no ceiling',
+    firstTime ? 'You Won! You Got Dressed!' : 'ROUTE BURNT OPEN',
+    firstTime
+      ? `Moots beat the bottom of the city and finally found a shirt. Score ${Math.floor(run.score).toLocaleString()} · round ${run.round}. Keep grinding forever, or lace up from the start — the boots don't care which.`
+      : `The throne cracked. Score ${Math.floor(run.score).toLocaleString()} · round ${run.round}. ` +
+        'The room does not stop. It just stops pretending there was a bottom.',
+    [['Keep going ∞', () => { hideOverlays(); state.mode = 'play'; }],
+     ['From the start', () => startRun()]],
+    firstTime ? 'cosmetic unlocked: the striped shirt · overdrive: ×1.35 score · no ceiling'
+      : 'overdrive: ×1.35 score · the whole biome deck · no ceiling',
   );
 }
 

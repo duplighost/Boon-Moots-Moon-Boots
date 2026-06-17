@@ -6,6 +6,7 @@ import { state } from '../state.js';
 import { reduced } from '../systems/juice.js';
 
 export const moots = { img: null, ready: false };
+export const mootsDressed = { img: null, ready: false }; // unlocked by beating the final boss
 export const bossCards = {}; // bossId -> {img, ready}
 
 const PLAYER_DRAW_SCALE = PLAYER.DRAW_SCALE || 1;
@@ -17,6 +18,10 @@ export function loadSprites() {
   img.onload = () => { moots.ready = true; };
   img.src = './assets/moots.webp';
   moots.img = img;
+  const dressed = new Image();
+  dressed.onload = () => { mootsDressed.ready = true; };
+  dressed.src = './assets/moots-dressed.png';
+  mootsDressed.img = dressed;
   for (const [id, file] of Object.entries({
     falseMoon: 'false-moon-card', warden: 'warden-card', spiggot: 'spiggot-card', archon: 'archon-card',
   })) {
@@ -37,7 +42,7 @@ export function drawPlayer(ctx, p, room) {
   const pal = room.biome.pal;
   const spin = dashSpinPhase(p);
   const sp = Math.hypot(p.vx || 0, p.vy || 0);
-  const pose = { speed: sp, vx: p.vx || 0, vy: p.vy || 0, moveFace: p.moveFace || 0, animT: p.animT || 0, dash: p.dashT > 0, rail: !!p.rail?.active, vent: p.ventT > 0 };
+  const pose = { speed: sp, vx: p.vx || 0, vy: p.vy || 0, moveFace: p.moveFace || 0, animT: p.animT || 0, dash: p.dashT > 0, rail: !!p.rail?.active, vent: p.ventT > 0, surface: p._surface, aim: p.face || 0 };
   // combo charged aura: at a high score multiplier the passenger runs hot — a pulsing
   // ring that intensifies + shifts colour with the combo (completes the power fantasy).
   const combo = state.run?.combo || 1;
@@ -123,6 +128,7 @@ export function drawPlayer(ctx, p, room) {
     ctx.restore();
   }
   if (p._cat) drawCat(ctx, p._cat.x, p._cat.y, 0.58, pal);
+  drawRocketBoots(ctx, p, pose, pal);   // exhaust jets behind the boots → instant directionality
   drawPlayerBody(ctx, p.x, p.y, p.face, pal, 1, false, spin, pose);
   if (p.hurt > 0) {
     ctx.strokeStyle = pal.bad + 'cc'; ctx.lineWidth = 4;
@@ -138,6 +144,49 @@ export function drawPlayer(ctx, p, room) {
   }
 }
 
+// Rocket-boot exhaust: two jets from the feet pointing OPPOSITE travel. This is the
+// clearest read of where Moots is going (a symmetric front-facing ghost can't show it
+// with facing alone), and it's the whole point of "Rocket Shoes". Idle → soft hover
+// jets straight down; speed lengthens them; dash/charge-pad make them blaze white-hot.
+function drawRocketBoots(ctx, p, pose, pal) {
+  if (reduced()) return;
+  const sp = pose.speed || 0;
+  let dx, dy;
+  if (sp > 24) { const inv = 1 / sp; dx = -p.vx * inv; dy = -p.vy * inv; } // thrust opposes travel
+  else { dx = 0; dy = 1; }                                                  // hover: jets point down
+  const t = performance.now() / 1000;
+  const k = clamp(sp / (PLAYER.SPEED * 1.4), 0, 1);
+  const dash = pose.dash, charge = pose.surface === 'charge';
+  const baseLen = (dash ? 50 : 12 + k * 34) * (charge ? 1.3 : 1) * PLAYER_EFFECT_SCALE;
+  const core = dash ? '#ffffff' : charge ? '#eaffff' : '#fff2cf';
+  const outer = dash ? pal.accent3 : charge ? pal.accent2 : pal.accent;
+  const px = -dy, py = dx;
+  const bootY = p.y + 17 * PLAYER_EFFECT_SCALE;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const side of [-1, 1]) {
+    const ox = p.x + side * 8.5 * PLAYER_EFFECT_SCALE;
+    const oy = bootY;
+    const flick = 0.82 + Math.sin(t * 38 + side * 2) * 0.12 + Math.random() * 0.12;
+    const len = baseLen * flick;
+    const w = (dash ? 9 : 4.5 + k * 3.2) * PLAYER_EFFECT_SCALE;
+    ctx.globalAlpha = 0.45 + k * 0.32 + (dash ? 0.2 : 0);
+    ctx.fillStyle = outer; ctx.shadowColor = outer; ctx.shadowBlur = dash ? 18 : 9;
+    flamePath(ctx, ox, oy, dx, dy, len, w, px, py); ctx.fill();
+    ctx.shadowBlur = 0; ctx.globalAlpha = 0.8 + (dash ? 0.18 : 0);
+    ctx.fillStyle = core;
+    flamePath(ctx, ox, oy, dx, dy, len * 0.6, w * 0.55, px, py); ctx.fill();
+  }
+  ctx.restore();
+}
+function flamePath(ctx, ox, oy, dx, dy, len, w, px, py) {
+  ctx.beginPath();
+  ctx.moveTo(ox + px * w, oy + py * w);
+  ctx.quadraticCurveTo(ox + dx * len * 0.5 + px * w * 0.7, oy + dy * len * 0.5 + py * w * 0.7, ox + dx * len, oy + dy * len);
+  ctx.quadraticCurveTo(ox + dx * len * 0.5 - px * w * 0.7, oy + dy * len * 0.5 - py * w * 0.7, ox - px * w, oy - py * w);
+  ctx.closePath();
+}
+
 export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, spinPhase = 0, pose = {}) {
   ctx.save(); ctx.globalAlpha = alpha;
   shadow(ctx, x, y + 18 * PLAYER_DRAW_SCALE, 20 * PLAYER_DRAW_SCALE, 7 * PLAYER_DRAW_SCALE, ghost ? 0.1 : 0.30);
@@ -145,21 +194,32 @@ export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, s
   const speed = pose.speed || 0;
   const moving = speed > 28 && !ghost;
   const k = clamp(speed / (PLAYER.SPEED * 1.5), 0, 1);
-  const bob = ghost ? 0 : (moving ? Math.sin((pose.animT || 0) * 2.0) * (2.2 + k * 2.4) : Math.sin((pose.animT || 0) * 1.1) * 1.2);
-  const lean = ghost ? 0 : clamp((pose.vx || 0) / 1100, -0.13, 0.13) + (pose.rail ? Math.sin((pose.animT || 0) * 7) * 0.035 : 0);
+  // float higher when idle (ghost hover), pump faster when running
+  const bob = ghost ? 0 : (moving ? Math.sin((pose.animT || 0) * 2.2) * (2.4 + k * 2.6) : Math.sin((pose.animT || 0) * 1.3) * 2.0);
+  // strong bank into horizontal travel + a little rail shimmy
+  const lean = ghost ? 0 : clamp((pose.vx || 0) / 700, -0.26, 0.26) + (pose.rail ? Math.sin((pose.animT || 0) * 7) * 0.05 : 0);
   ctx.translate(0, bob);
   ctx.rotate(lean);
   ctx.scale(PLAYER_DRAW_SCALE, PLAYER_DRAW_SCALE); // visual scale lives in config; collision stays separate
   const spinning = !ghost && Math.abs(spinPhase) > 0.001;
   if (moving && !spinning) drawStepAccents(ctx, pose, pal, k);
-  if (moots.ready && !ghost) {
+  const dressed = !ghost && state.save?.gotDressed && mootsDressed.ready;  // win cosmetic
+  const bodyImg = dressed ? mootsDressed.img : moots.img;
+  const bodyReady = dressed ? mootsDressed.ready : moots.ready;
+  if (bodyReady && !ghost) {
     const yaw = Math.cos(spinPhase);
     const stepSquash = moving ? 1 + Math.sin((pose.animT || 0) * 2) * 0.025 : 1;
-    const sx = spinning ? (0.28 + 0.72 * Math.abs(yaw)) : (1 + k * 0.04);
-    const flip = spinning ? (yaw < 0 ? -1 : 1) : (moving && Math.cos(pose.moveFace || 0) < -0.2 ? -1 : 1);
+    // speed-stretch: streamline taller + narrower when fast, exaggerated on a dash
+    const stretchY = 1 + k * 0.12 + (pose.dash ? 0.16 : 0);
+    const squashX = 1 - k * 0.05;
+    const sx = spinning ? (0.28 + 0.72 * Math.abs(yaw)) : (1 + k * 0.04) * squashX;
+    // face the way you're running; face your aim when standing still
+    const flip = spinning ? (yaw < 0 ? -1 : 1)
+      : moving ? (Math.cos(pose.moveFace || 0) < -0.2 ? -1 : 1)
+      : (Math.cos(pose.aim || 0) < -0.2 ? -1 : 1);
     ctx.save();
-    ctx.scale(sx * flip, (1 + 0.035 * Math.sin(spinPhase * 2)) / stepSquash);
-    ctx.drawImage(moots.img, -36, -72, 72, 106);
+    ctx.scale(sx * flip, (1 + 0.035 * Math.sin(spinPhase * 2)) * stretchY / stepSquash);
+    ctx.drawImage(bodyImg, -36, -72, 72, 106);
     ctx.restore();
     if (spinning) {
       ctx.save(); ctx.globalAlpha = alpha * 0.55;

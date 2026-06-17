@@ -3,7 +3,7 @@
 
 export const TAU = Math.PI * 2;
 export const SAVE_KEY = 'oneRoomNoMoon.v1';
-export const VERSION = '1.0.0-rocket-shoes';
+export const VERSION = '1.1.0-rocket-shoes-XL';
 
 export const ROOM = {
   W: 2050, H: 1460, H_PORTRAIT: 1820,   // base dims (the roller rolls actual sizes; these document the target)
@@ -16,16 +16,17 @@ export const PLAYER = {
   // Moots is drawn at this fraction of his original art size; collision stays separate.
   // Body, gun, body-hugging FX, and bullet emitter all key off this one knob.
   DRAW_SCALE: 0.70,
-  SPEED: 370, ACCEL: 30.5, STOP: 42.0, TURN: 38, LATERAL: 16.5,
-  MAX_SPEED_MULT: 1.18, DASH_SPEED_MULT: 5.95,
+  // FASTEST of the lineage — beats both forks. Rocket Shoes should feel like rockets.
+  SPEED: 412, ACCEL: 36, STOP: 42.0, TURN: 44, LATERAL: 19.5,
+  MAX_SPEED_MULT: 1.30, DASH_SPEED_MULT: 6.6,
   FIRE_DELAY: 0.15, DAMAGE: 0.88, SHOT_MULT: 0.72, SHOT_SPEED: 860,
   // Bullet radius stays readable at the 0.82 camera zoom; shot lifetime was lengthened for the bigger arenas.
-  SHOT_R: 4.2, SHOT_LIFE: 1.08, TWIN_OFFSET: 6,
+  SHOT_R: 4.2, SHOT_LIFE: 1.12, TWIN_OFFSET: 6,
   // Art-space gun offsets. firePlayer multiplies these by DRAW_SCALE so bullets leave the shrunken muzzle.
   EMITTER_Y: -16, EMITTER_LEN: 32,
   CRIT: 0.03, CRIT_MULT: 1.8,
   // the dash is the centerpiece: long, far, invincible throughout, hits hard+wide
-  DASH_IMPULSE: 1880, DASH_DUR: 0.46, DASH_CD: 0.34, DASH_IFRAMES: 0.50,
+  DASH_IMPULSE: 2160, DASH_DUR: 0.48, DASH_CD: 0.28, DASH_IFRAMES: 0.56,
   DASH_GLIDE: 1.55, DASH_HIT_RANGE: 172, DASH_SWEEP_RANGE: 132, DASH_HIT_MULT: 1.32, DASH_KNOCK: 560,
   DASH_KILL_REFUND: 0.09,   // every kill feeds the dash loop a little
   DASH_PRIME_MULT: 1.5, DASH_PRIME_PIERCE: 1, // "dash primes next shot" relic payload
@@ -45,10 +46,12 @@ export const CAPS = {
   // City-scale arenas: lift the ceilings so the sprawl stays full of action + flash.
   // Director budget scales with room area (see buildWaves); these are the hard caps.
   // TOP PLAYTEST DIAL: drop back if combat reads as soup or perf dips.
-  ENEMIES: { mobile: 46, desktop: 76 },
-  ENEMY_BULLETS: { mobile: 130, desktop: 220 },
+  // XL arenas: a LOT of enemies on screen. Bigger than both forks; viewport culling +
+  // adaptive lowFx keep it affordable.
+  ENEMIES: { mobile: 58, desktop: 104 },
+  ENEMY_BULLETS: { mobile: 140, desktop: 240 },
   PLAYER_BULLETS: { mobile: 110, desktop: 210 },
-  PARTICLES: { mobile: 180, desktop: 340 },
+  PARTICLES: { mobile: 190, desktop: 380 },
 };
 
 export const DIRECTOR = {
