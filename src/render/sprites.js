@@ -5,11 +5,26 @@ import { dashSpinPhase } from '../systems/player.js';
 import { state } from '../state.js';
 import { reduced } from '../systems/juice.js';
 
-export const moots = { img: null, ready: false };
+export const moots = { img: null, ready: false };             // whole-sprite fallbacks
 export const mootsDressed = { img: null, ready: false }; // unlocked by beating the final boss
 export const mootsBack = { img: null, ready: false };         // facing-away (faceless) art
 export const mootsDressedBack = { img: null, ready: false };  // facing-away + win shirt
 export const bossCards = {}; // bossId -> {img, ready}
+
+// Layered bodies: the boots ride on their own layers so the feet actually stride (each boot
+// rocks at the ankle) and the body can swap to its faceless back — all while keeping the exact
+// sticker art. Falls back to the whole-sprite above until every layer has loaded.
+function layerSet() {
+  return {
+    body: { img: null, ready: false }, back: { img: null, ready: false },
+    bootL: { img: null, ready: false }, bootR: { img: null, ready: false },
+    get ready() { return this.body.ready && this.back.ready && this.bootL.ready && this.bootR.ready; },
+  };
+}
+export const plainLayers = layerSet();
+export const dressedLayers = layerSet();
+// boot ankle pivots in draw space (measured from the assets), per outfit
+const BOOT_PIV = { plain: { L: [-16.4, -3.5], R: [10.2, -2.5] }, dressed: { L: [-14.2, 9.1], R: [14.3, 9.1] } };
 
 const PLAYER_DRAW_SCALE = PLAYER.DRAW_SCALE || 1;
 const PLAYER_EFFECT_SCALE = Math.max(0.78, PLAYER_DRAW_SCALE);
@@ -27,6 +42,14 @@ export function loadSprites() {
   loadInto(mootsBack, './assets/moots-back.webp');
   loadInto(mootsDressed, './assets/moots-dressed.webp');
   loadInto(mootsDressedBack, './assets/moots-dressed-back.webp');
+  loadInto(plainLayers.body, './assets/moots-body.webp');
+  loadInto(plainLayers.back, './assets/moots-back-body.webp');
+  loadInto(plainLayers.bootL, './assets/moots-boot-l.webp');
+  loadInto(plainLayers.bootR, './assets/moots-boot-r.webp');
+  loadInto(dressedLayers.body, './assets/moots-dressed-body.webp');
+  loadInto(dressedLayers.back, './assets/moots-dressed-back-body.webp');
+  loadInto(dressedLayers.bootL, './assets/moots-dressed-boot-l.webp');
+  loadInto(dressedLayers.bootR, './assets/moots-dressed-boot-r.webp');
   for (const [id, file] of Object.entries({
     falseMoon: 'false-moon-card', warden: 'warden-card', spiggot: 'spiggot-card', archon: 'archon-card',
   })) {
@@ -48,9 +71,10 @@ export function drawPlayer(ctx, p, room) {
   const spin = dashSpinPhase(p);
   const sp = Math.hypot(p.vx || 0, p.vy || 0);
   // Body facing is decoupled from the aim: Moots turns to face travel (or aim when idle),
-  // while the blaster still tracks the shot. The left/right flip persists through a small
-  // dead-zone so straight-up / straight-down motion doesn't make him flicker side to side.
-  const bodyFace = sp > 28 ? (p.moveFace || 0) : (p.face || 0);
+  // while the blaster still tracks the shot. p.bodyFace is eased per-frame (player.js) so the
+  // turn is smooth; the left/right flip persists through a dead-zone so straight up/down
+  // motion doesn't make him flicker side to side.
+  const bodyFace = p.bodyFace ?? (sp > 28 ? (p.moveFace || 0) : (p.face || 0));
   const bfx = Math.cos(bodyFace);
   if (bfx < -0.18) p._bodyFlip = -1; else if (bfx > 0.18) p._bodyFlip = 1;
   const pose = { speed: sp, vx: p.vx || 0, vy: p.vy || 0, moveFace: p.moveFace || 0, animT: p.animT || 0, dash: p.dashT > 0, rail: !!p.rail?.active, vent: p.ventT > 0, surface: p._surface, aim: p.face || 0, bodyFace, flip: p._bodyFlip || 1 };
@@ -198,6 +222,14 @@ function flamePath(ctx, ox, oy, dx, dy, len, w, px, py) {
   ctx.closePath();
 }
 
+// One boot layer, rocked around its ankle pivot (draw space) so the foot steps.
+function drawBootLayer(ctx, img, piv, ang) {
+  ctx.save();
+  ctx.translate(piv[0], piv[1]); ctx.rotate(ang); ctx.translate(-piv[0], -piv[1]);
+  ctx.drawImage(img, -36, -72, 72, 106);
+  ctx.restore();
+}
+
 export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, spinPhase = 0, pose = {}) {
   ctx.save(); ctx.globalAlpha = alpha;
   shadow(ctx, x, y + 18 * PLAYER_DRAW_SCALE, 20 * PLAYER_DRAW_SCALE, 7 * PLAYER_DRAW_SCALE, ghost ? 0.1 : 0.30);
@@ -218,12 +250,13 @@ export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, s
   const bodyFace = pose.bodyFace ?? (moving ? (pose.moveFace || 0) : (pose.aim || face));
   const fy = Math.sin(bodyFace), fx = Math.cos(bodyFace);
   const dressed = !ghost && state.save?.gotDressed && mootsDressed.ready;  // win cosmetic
-  // Swap to the faceless "back" art once he points firmly away (upward) and it has loaded.
-  const facingBack = !ghost && !spinning && fy < -0.5
-    && mootsBack.ready && (!dressed || mootsDressedBack.ready);
-  const bodyImg = facingBack ? (dressed ? mootsDressedBack.img : mootsBack.img)
-    : (dressed ? mootsDressed.img : moots.img);
-  const bodyReady = facingBack ? true : (dressed ? mootsDressed.ready : moots.ready);
+  // Swap to the faceless "back" art once he points firmly away (upward).
+  const facingBack = !ghost && !spinning && fy < -0.5;
+  const layers = dressed ? dressedLayers : plainLayers;
+  const useLayers = !ghost && !spinning && layers.ready;          // striding feet + body swap
+  const backImg = dressed ? mootsDressedBack : mootsBack;
+  const wholeImg = (facingBack && backImg.ready) ? backImg.img : (dressed ? mootsDressed.img : moots.img);
+  const bodyReady = dressed ? mootsDressed.ready : moots.ready;   // whole-sprite fallback gate
   if (bodyReady && !ghost) {
     const yaw = Math.cos(spinPhase);
     const stepSquash = moving ? 1 + Math.sin((pose.animT || 0) * 2) * 0.025 : 1;
@@ -240,7 +273,17 @@ export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, s
     if (gunBehind) drawEmitter(ctx, face, pal);
     ctx.save();
     ctx.scale(sx * flip, (1 + 0.035 * Math.sin(spinPhase * 2)) * stretchY / stepSquash);
-    ctx.drawImage(bodyImg, -36, -72, 72, 106);
+    if (useLayers) {
+      // Striding feet: each boot rocks around its ankle in opposite phase, planted (no lift)
+      // so the body's hem always covers the tops. Amplitude grows with speed, zero when idle.
+      const rock = (moving ? Math.sin((pose.animT || 0) * 2) : 0) * (0.05 + k * 0.06);
+      const piv = dressed ? BOOT_PIV.dressed : BOOT_PIV.plain;
+      drawBootLayer(ctx, layers.bootL.img, piv.L, rock);
+      drawBootLayer(ctx, layers.bootR.img, piv.R, -rock);
+      ctx.drawImage(facingBack ? layers.back.img : layers.body.img, -36, -72, 72, 106);
+    } else {
+      ctx.drawImage(wholeImg, -36, -72, 72, 106);
+    }
     ctx.restore();
     if (spinning) {
       ctx.save(); ctx.globalAlpha = alpha * 0.55;

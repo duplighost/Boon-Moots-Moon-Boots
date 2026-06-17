@@ -28,7 +28,7 @@ export function makePlayer() {
     modules: {},
     boon: { charges: 0, progress: 0, need: 2 },
     shots: 0, dashes: 0, stillT: 0, wasMoving: false, brakeT: 0, flowT: 0,
-    animT: 0, moveFace: 0, rail: null, air: null, airZ: 0, ventT: 0,
+    animT: 0, moveFace: 0, bodyFace: 0, rail: null, air: null, airZ: 0, ventT: 0,
     comboHealFx: 0, comboTierFx: 0, _railLatchCd: 0,
     _ventExitX: null, _ventExitY: null, _ventExitLevel: null, _enterPortalNow: false,
     _dashFrameActive: false, _dashLastX: 750, _dashLastY: 700,
@@ -308,8 +308,18 @@ function tickVentTimers(room, dt) {
   for (const v of room.vents || []) v.flash = Math.max(0, (v.flash || 0) - dt);
 }
 
+function angleDelta(a, b) {
+  let d = (b - a + Math.PI) % TAU - Math.PI;
+  if (d < -Math.PI) d += TAU;
+  return d;
+}
+
 function updateAnimPose(p, sp, dt) {
   if (sp > 20) p.moveFace = Math.atan2(p.vy, p.vx);
+  // Body turns smoothly toward where you're going (or your aim when nearly still) so the
+  // sprite banks and turns around fluidly instead of snapping between facings.
+  const target = sp > 34 || p.rail?.active || p.air ? (p.moveFace || 0) : (p.face || p.moveFace || 0);
+  p.bodyFace = (p.bodyFace || 0) + angleDelta(p.bodyFace || 0, target) * (1 - Math.exp(-10 * dt));
   const gait = p.air ? 7.5 : p.rail?.active ? 12 : p.dashT > 0 ? 14 : 4.2 + Math.min(7, sp / 75);
   p.animT = (p.animT || 0) + dt * gait;
 }
