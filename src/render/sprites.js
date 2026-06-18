@@ -9,6 +9,10 @@ export const moots = { img: null, ready: false };             // whole-sprite fa
 export const mootsDressed = { img: null, ready: false }; // unlocked by beating the final boss
 export const mootsBack = { img: null, ready: false };         // facing-away (faceless) art
 export const mootsDressedBack = { img: null, ready: false };  // facing-away + win shirt
+export const mootsSideL = { img: null, ready: false };        // true side profiles (face turned 90°)
+export const mootsSideR = { img: null, ready: false };
+export const mootsDressedSideL = { img: null, ready: false };
+export const mootsDressedSideR = { img: null, ready: false };
 export const bossCards = {}; // bossId -> {img, ready}
 
 // Layered bodies: the boots ride on their own layers so the feet actually stride (each boot
@@ -42,6 +46,10 @@ export function loadSprites() {
   loadInto(mootsBack, './assets/moots-back.webp');
   loadInto(mootsDressed, './assets/moots-dressed.webp');
   loadInto(mootsDressedBack, './assets/moots-dressed-back.webp');
+  loadInto(mootsSideL, './assets/moots-side-l.webp');
+  loadInto(mootsSideR, './assets/moots-side-r.webp');
+  loadInto(mootsDressedSideL, './assets/moots-dressed-side-l.webp');
+  loadInto(mootsDressedSideR, './assets/moots-dressed-side-r.webp');
   loadInto(plainLayers.body, './assets/moots-body.webp');
   loadInto(plainLayers.bootL, './assets/moots-boot-l.webp');
   loadInto(plainLayers.bootR, './assets/moots-boot-r.webp');
@@ -244,36 +252,44 @@ export function drawPlayerBody(ctx, x, y, face, pal, alpha = 1, ghost = false, s
   ctx.scale(PLAYER_DRAW_SCALE, PLAYER_DRAW_SCALE); // visual scale lives in config; collision stays separate
   const spinning = !ghost && Math.abs(spinPhase) > 0.001;
   if (moving && !spinning) drawStepAccents(ctx, pose, pal, k);
-  // Which way is the body pointing? (decoupled from aim — see drawPlayer.) fy<0 is "away".
+  // Which way is the body pointing? (decoupled from aim — see drawPlayer.)
   const bodyFace = pose.bodyFace ?? (moving ? (pose.moveFace || 0) : (pose.aim || face));
-  const fy = Math.sin(bodyFace), fx = Math.cos(bodyFace);
+  const fx = Math.cos(bodyFace), fy = Math.sin(bodyFace);
+  const absx = Math.abs(fx), absy = Math.abs(fy);
+  // Four-way facing from the real art — front / back / left / right. Diagonals snap to the
+  // dominant axis; vertical wins ties so near-straight travel reads as front/back, and the
+  // true side profiles (face turned 90°) carry horizontal travel.
+  const view = absy >= absx ? (fy < 0 ? 'back' : 'front') : (fx < 0 ? 'sideL' : 'sideR');
   const dressed = !ghost && state.save?.gotDressed && mootsDressed.ready;  // win cosmetic
-  // Swap to the faceless "back" art once he points firmly away (upward).
-  const facingBack = !ghost && !spinning && fy < -0.5;
   const layers = dressed ? dressedLayers : plainLayers;
-  const useLayers = !ghost && !spinning && layers.ready;          // striding feet + body swap
+  const useLayers = !ghost && !spinning && view === 'front' && layers.ready; // striding feet
   const backImg = dressed ? mootsDressedBack : mootsBack;
-  const wholeImg = (facingBack && backImg.ready) ? backImg.img : (dressed ? mootsDressed.img : moots.img);
+  const sideImg = view === 'sideL' ? (dressed ? mootsDressedSideL : mootsSideL)
+    : view === 'sideR' ? (dressed ? mootsDressedSideR : mootsSideR) : null;
+  const facingBack = !ghost && !spinning && view === 'back' && backImg.ready;
+  const facingSide = !ghost && !spinning && !!sideImg && sideImg.ready;
+  const wholeImg = facingBack ? backImg.img : facingSide ? sideImg.img : (dressed ? mootsDressed.img : moots.img);
   const bodyReady = dressed ? mootsDressed.ready : moots.ready;   // whole-sprite fallback gate
   if (bodyReady && !ghost) {
     const yaw = Math.cos(spinPhase);
     const stepSquash = moving ? 1 + Math.sin((pose.animT || 0) * 2) * 0.025 : 1;
     // speed-stretch: streamline taller + narrower when fast, exaggerated on a dash
     const stretchY = 1 + k * 0.12 + (pose.dash ? 0.16 : 0);
-    // pinch horizontally right at the front<->back turn so the swap reads as a pivot,
-    // not a pop; full width everywhere else (you skate sideways constantly).
-    const turn = clamp(1 - Math.abs(fy + 0.5) / 0.22, 0, 1);
-    const squashX = (1 - k * 0.05) * (1 - turn * 0.42);
+    const squashX = 1 - k * 0.05;
     const sx = spinning ? (0.28 + 0.72 * Math.abs(yaw)) : (1 + k * 0.04) * squashX;
-    const flip = spinning ? (yaw < 0 ? -1 : 1) : (pose.flip ?? (fx < -0.18 ? -1 : 1));
+    // the directional art already faces the right way, so only the dash barrel-roll flips
+    const flip = spinning ? (yaw < 0 ? -1 : 1) : 1;
     // Up/back aim tucks the blaster BEHIND the body so it never crosses the head.
     const gunBehind = !spinning && Math.sin(face) < -0.32;
     if (gunBehind) drawEmitter(ctx, face, pal);
     ctx.save();
     ctx.scale(sx * flip, (1 + 0.035 * Math.sin(spinPhase * 2)) * stretchY / stepSquash);
-    if (facingBack && backImg.ready) {
-      // Hand-drawn back art: faceless Moots with true heel boots, one piece (no compositing).
+    if (facingBack) {
+      // Hand-drawn back art: faceless Moots with true heel boots, one piece.
       ctx.drawImage(backImg.img, -36, -72, 72, 106);
+    } else if (facingSide) {
+      // True side profile (face turned 90°, one boot forward) — hand-drawn per direction.
+      ctx.drawImage(sideImg.img, -36, -72, 72, 106);
     } else if (useLayers) {
       // Front view — striding feet: each boot rocks around its ankle in opposite phase,
       // planted (no lift) so the body's hem always covers the tops. Grows with speed.
